@@ -1,0 +1,169 @@
+# =====================================================================
+# 开发环境中间件编排（仅启动依赖服务，前后端在宿主机本地运行，热更新快）
+#
+#   启动：docker compose -f deploy/docker-compose.dev.yml up -d
+#   查看：docker compose -f deploy/docker-compose.dev.yml ps
+#   停止：docker compose -f deploy/docker-compose.dev.yml down
+#   清空数据：docker compose -f deploy/docker-compose.dev.yml down -v
+#
+# 端口约定（避开后端 8080，避免本地调试时端口冲突）：
+#   PostgreSQL 5432 / Redis 6379 / MinIO 9000(API) 9001(控制台) / Embedding 8090
+# =====================================================================
+name: code-review-dev
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: cr-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-codereview}
+      POSTGRES_USER: ${DB_USER:-codereview}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-codereview}
+      TZ: Asia/Shanghai
+      PGTZ: Asia/Shanghai
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    # 参数说明：
+    #   log_min_duration_statement=500 记录慢查询，便于答辩前做性能优化
+    #   jit=off 小数据量下 JIT 编译反而增加延迟
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - max_connections=100
+      - -c
+      - log_min_duration_statement=500
+      - -c
+      - jit=off
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-codereview} -d ${DB_NAME:-codereview}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - cr-net
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: cr-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    # 关键：maxmemory-policy 必须是 noeviction。
+    # 用 allkeys-lru 会把"刷新令牌 / 访问令牌黑名单"当缓存驱逐掉，
+    # 后果是用户被莫名其妙踢下线、已登出的令牌重新可用。
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --maxmemory
+      - 512mb
+      - --maxmemory-policy
+      - noeviction
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks:
+      - cr-net
+
+  minio:
+    image: minio/minio:latest
+    container_name: cr-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      TZ: Asia/Shanghai
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - miniodata:/data
+    restart: unless-stopped
+    networks:
+      - cr-net
+
+  # ------------------------------------------------------------------
+  # 向量化服务：BGE-M3，1024 维，L2 归一化
+  #
+  # 方案 A（默认，推荐）：TEI 官方镜像，无需自己写服务端，模型由 HF 自动拉取
+  #   启动：docker compose -f deploy/docker-compose.dev.yml up -d embedding
+  # 方案 B（备选）：自建 FastAPI 服务，见 embedding/ 目录
+  #   启动：docker compose -f deploy/docker-compose.dev.yml --profile fastapi up -d embedding-fastapi
+  #
+  # 首次启动需要下载约 2.2GB 模型，耗时取决于网络；模型缓存在 tei-cache 卷中，
+  # 后续重启不再重复下载。
+  # ------------------------------------------------------------------
+  embedding:
+    image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.8
+    container_name: cr-embedding
+    command:
+      - --model-id
+      - BAAI/bge-m3
+      - --port
+      - "80"
+      - --max-batch-tokens
+      - "16384"
+      - --max-client-batch-size
+      - "32"
+    environment:
+      HUGGINGFACE_HUB_CACHE: /data
+      HF_HUB_ENABLE_HF_TRANSFER: "0"
+    ports:
+      - "${EMBEDDING_PORT:-8090}:80"
+    volumes:
+      - tei-cache:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:80/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 40
+      start_period: 300s
+    restart: unless-stopped
+    networks:
+      - cr-net
+
+  embedding-fastapi:
+    profiles: ["fastapi"]
+    build:
+      context: ../embedding
+      dockerfile: Dockerfile
+    container_name: cr-embedding-fastapi
+    environment:
+      EMBEDDING_MODEL: BAAI/bge-m3
+      EMBEDDING_DIM: "1024"
+      DEVICE: cpu
+      HF_HOME: /data
+      MAX_BATCH_SIZE: "32"
+    ports:
+      - "${EMBEDDING_PORT:-8090}:8000"
+    volumes:
+      - tei-cache:/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 40
+      start_period: 300s
+    restart: unless-stopped
+    networks:
+      - cr-net
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:
+  tei-cache:
+
+networks:
+  cr-net:
+    driver: bridge

@@ -1,0 +1,77 @@
+/* =====================================================================
+   全局样式
+   原则：只做「重置 + 布局骨架 + 少量工具类」，
+   组件内样式一律写在 SFC 的 scoped 块里，避免全局污染。
+   ===================================================================== */
+
+:root {
+  --cr-header-height: 56px;
+  --cr-sidebar-width: 220px;
+  --cr-sidebar-collapsed-width: 64px;
+  --cr-radius: 8px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* 滚动条统一收窄，避免不同浏览器观感差异过大 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--el-border-color-darker);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* 工具类 */
+.cr-flex {
+  display: flex;
+  align-items: center;
+}
+
+.cr-flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cr-text-muted {
+  color: var(--el-text-color-secondary);
+}
+
+.cr-page {
+  padding: 16px 20px 24px;
+}
+
+.cr-card {
+  background: var(--el-bg-color-overlay);
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: var(--cr-radius);
+}

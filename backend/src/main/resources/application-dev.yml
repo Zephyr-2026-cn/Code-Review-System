@@ -1,0 +1,38 @@
+# 开发环境：中间件由 deploy/docker-compose.dev.yml 提供
+spring:
+  datasource:
+    # stringtype=unspecified：让 String 直接写入 JSONB 列，避免 jsonb 类型转换报错
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:codereview}?stringtype=unspecified&reWriteBatchedInserts=true&ApplicationName=code-review
+    username: ${DB_USER:codereview}
+    password: ${DB_PASSWORD:codereview}
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      pool-name: CodeReviewHikari
+      maximum-pool-size: 14
+      minimum-idle: 4
+      connection-timeout: 10000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      # 泄漏检测：连接持有超过 60s 打印堆栈，便于定位长事务
+      leak-detection-threshold: 60000
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: 0
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+          max-wait: 2000ms
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+logging:
+  level:
+    com.shenchao.codereview: DEBUG

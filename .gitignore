@@ -1,0 +1,57 @@
+# ---------------- Java / Maven ----------------
+target/
+*.class
+*.jar
+*.war
+!.mvn/wrapper/maven-wrapper.jar
+hs_err_pid*
+replay_pid*
+
+# ---------------- Node / 前端 ----------------
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.local
+npm-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ---------------- 环境变量（严禁提交） ----------------
+.env
+.env.*
+!.env.example
+
+# ---------------- 敏感文件 ----------------
+*.pem
+*.key
+*.p12
+*.jks
+secrets/
+
+# ---------------- IDE ----------------
+.idea/
+*.iml
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+
+# ---------------- 系统 ----------------
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------------- 运行时产物 ----------------
+logs/
+*.log
+data/
+tmp/
+uploads/
+workspace/
+
+# ---------------- Python（embedding 服务） ----------------
+__pycache__/
+*.pyc
+.venv/
+venv/

@@ -1,0 +1,143 @@
+# ============================================================
+# 智能代码审查系统 - 主配置
+# 敏感项一律走环境变量，禁止硬编码；变量清单见 deploy/.env.example
+# ============================================================
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+  servlet:
+    context-path: /api
+    encoding:
+      charset: UTF-8
+      force: true
+  compression:
+    enabled: true
+    mime-types: application/json,text/html,text/css,application/javascript
+  tomcat:
+    # 上传代码包上限 200MB（蓝皮书 8.1：zip 上传为辅）
+    max-http-form-post-size: 200MB
+    connection-timeout: 20s
+  error:
+    include-message: never
+    include-stacktrace: never
+
+spring:
+  application:
+    name: code-review
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+  servlet:
+    multipart:
+      max-file-size: 200MB
+      max-request-size: 200MB
+  jackson:
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+      fail-on-empty-beans: false
+    deserialization:
+      fail-on-unknown-properties: false
+  mvc:
+    problemdetails:
+      enabled: false
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+    validate-on-migrate: true
+    # 生产禁止 clean，防止误删库
+    clean-disabled: true
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.shenchao.codereview.**.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    # 生产环境置为 org.apache.ibatis.logging.nologging.NoLoggingImpl
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    banner: false
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+management:
+  endpoints:
+    web:
+      base-path: /actuator
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+      probes:
+        enabled: true
+  health:
+    redis:
+      enabled: true
+    db:
+      enabled: true
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: method
+  default-produces-media-type: application/json
+
+logging:
+  level:
+    root: INFO
+    com.shenchao.codereview: ${LOG_LEVEL_APP:INFO}
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] [%X{traceId:-}] %-5level %logger{40} - %msg%n"
+
+# ============================================================
+# 业务配置
+# ============================================================
+app:
+  jwt:
+    # 至少 32 字节；由 APP_JWT_SECRET 注入（Base64），未注入时使用 dev 默认值
+    secret: ${APP_JWT_SECRET:ZGV2LW9ubHktc2VjcmV0LWRvLW5vdC11c2UtaW4tcHJvZHVjdGlvbi0zMmJ5dGVz}
+    issuer: code-review
+    access-token-ttl: 2h
+    refresh-token-ttl: 7d
+    # 允许的时钟偏移，避免多实例时间不同步导致刚签发即过期
+    clock-skew: 30s
+  security:
+    # 登录失败锁定策略
+    max-login-failures: 5
+    login-lock-duration: 15m
+    # 免认证白名单（相对 context-path）
+    permit-all:
+      - /auth/login
+      - /auth/refresh
+      - /actuator/health
+      - /actuator/health/**
+      - /v3/api-docs/**
+      - /swagger-ui/**
+      - /swagger-ui.html
+  bootstrap:
+    # 首次启动自动创建超级管理员，创建后请立即修改密码
+    admin-username: ${APP_ADMIN_USERNAME:admin}
+    admin-password: ${APP_ADMIN_PASSWORD:Admin@123456}
+  async:
+    audit:
+      core-pool-size: 2
+      max-pool-size: 8
+      queue-capacity: 2000
+    review:
+      core-pool-size: 4
+      max-pool-size: 8
+      queue-capacity: 100
+  cors:
+    allowed-origins: ${APP_CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+  # 刷新令牌 Cookie 是否仅 HTTPS 传输；开发环境 http 必须为 false，生产必须为 true
+  cookie-secure: ${APP_COOKIE_SECURE:false}

@@ -1,0 +1,19 @@
+# 统一换行符为 LF，避免 Windows/macOS/Linux 协作时整文件 diff
+* text=auto eol=lf
+
+# 显式声明二进制文件，防止 Git 做换行转换损坏内容
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.jar binary
+*.docx binary
+*.xlsx binary
+*.pptx binary
+
+# 锁文件不做 diff 展开（体积大且无阅读价值）
+package-lock.json -diff
