@@ -34,7 +34,7 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'projects',
         name: 'projects',
-        component: () => import('@/views/ComingSoonView.vue'),
+        component: () => import('@/views/project/ProjectListView.vue'),
         meta: { title: '项目管理', icon: 'Folder', permission: 'project:repo:list' }
       },
       {
@@ -64,13 +64,19 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'system/users',
         name: 'system-users',
-        component: () => import('@/views/ComingSoonView.vue'),
+        component: () => import('@/views/system/UserManageView.vue'),
         meta: { title: '用户管理', icon: 'UserFilled', permission: 'system:user:list' }
+      },
+      {
+        path: 'system/roles',
+        name: 'system-roles',
+        component: () => import('@/views/system/RoleManageView.vue'),
+        meta: { title: '角色权限', icon: 'Key', permission: 'system:role:list' }
       },
       {
         path: 'system/audit',
         name: 'system-audit',
-        component: () => import('@/views/ComingSoonView.vue'),
+        component: () => import('@/views/system/AuditLogView.vue'),
         meta: { title: '审计日志', icon: 'DocumentCopy', permission: 'system:audit:list' }
       }
     ]

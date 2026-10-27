@@ -144,6 +144,13 @@ instance.interceptors.response.use(
       await forceLogout()
     }
 
+    // ---- 403 + 会话被吊销：管理员改了角色或禁用了账号，重试无意义，直接回登录页 ----
+    if (businessCode === ErrorCodes.SESSION_REVOKED) {
+      ElMessage.warning(body?.message ?? '账号权限已变更，请重新登录')
+      await forceLogout()
+      return Promise.reject(new ApiError(body?.message ?? '账号权限已变更', businessCode, httpStatus))
+    }
+
     // ---- 其余错误：统一提示 ----
     const message = buildErrorMessage(httpStatus, businessCode, body?.message, body?.traceId)
     if (!config?.silent && httpStatus !== 401) {

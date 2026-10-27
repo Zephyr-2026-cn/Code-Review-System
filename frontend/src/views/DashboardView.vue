@@ -18,7 +18,7 @@ const permissions = computed(() => Array.from(userStore.profile?.permissions ?? 
 
 const milestones = [
   { key: 'M0', title: '环境与登录链路', status: 'done', desc: '骨架、Flyway 建库、JWT 登录' },
-  { key: 'M1', title: '用户与权限', status: 'todo', desc: '三角色 RBAC、项目接入' },
+  { key: 'M1', title: '用户与权限', status: 'done', desc: '三角色 RBAC、用户/角色管理、Git 仓库接入' },
   { key: 'M2', title: '任务与静态引擎', status: 'todo', desc: '状态机、队列、PMD 分析' },
   { key: 'M3', title: '语义引擎', status: 'todo', desc: '增量切片、LLM 结构化输出' },
   { key: 'M4', title: '融合与报告页', status: 'todo', desc: '双引擎归并、报告主舞台' }

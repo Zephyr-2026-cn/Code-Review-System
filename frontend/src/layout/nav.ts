@@ -44,6 +44,7 @@ export const navGroups: NavGroup[] = [
     title: '系统',
     items: [
       { path: '/system/users', title: '用户管理', icon: 'UserFilled', permission: 'system:user:list' },
+      { path: '/system/roles', title: '角色权限', icon: 'Key', permission: 'system:role:list' },
       { path: '/system/audit', title: '审计日志', icon: 'DocumentCopy', permission: 'system:audit:list' }
     ]
   }

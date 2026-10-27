@@ -25,6 +25,8 @@ export interface UserProfile {
   email?: string | null
   roles: string[]
   permissions: string[]
+  /** 为 true 表示管理员创建/重置过密码，前端应强制跳转改密 */
+  passwordResetRequired?: boolean
 }
 
 export interface LoginResponse {
@@ -37,6 +39,7 @@ export interface LoginResponse {
 /** 业务错误码，与后端 ErrorCode 保持一致（前端只关心需要特殊处理的部分）。 */
 export const ErrorCodes = {
   SUCCESS: 0,
+  PARAM_INVALID: 40001,
   UNAUTHORIZED: 40100,
   TOKEN_INVALID: 40101,
   TOKEN_EXPIRED: 40102,
@@ -45,5 +48,13 @@ export const ErrorCodes = {
   ACCOUNT_DISABLED: 40105,
   ACCOUNT_LOCKED: 40106,
   FORBIDDEN: 40300,
-  PERMISSION_DENIED: 40301
+  PERMISSION_DENIED: 40301,
+  SELF_OPERATION_FORBIDDEN: 40303,
+  BUILTIN_ROLE_PROTECTED: 40304,
+  PRIVILEGE_ESCALATION: 40305,
+  /** 账号权限被管理员变更，旧令牌已吊销，必须重新登录 */
+  SESSION_REVOKED: 40306,
+  CONFLICT: 40900,
+  LAST_ADMIN_PROTECTED: 40905,
+  ROLE_IN_USE: 40906
 } as const
