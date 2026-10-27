@@ -1,5 +1,6 @@
 package com.shenchao.codereview.common.api;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.v3.oas.annotations.media.Schema;
 import org.slf4j.MDC;
@@ -48,6 +49,13 @@ public record Result<T>(
         return new Result<>(code, message, null, currentTraceId(), System.currentTimeMillis());
     }
 
+    /**
+     * 便捷判断，<b>不参与序列化</b>。
+     *
+     * <p>{@code @JsonIgnore} 不可省略：Jackson 会把 {@code isSuccess()} 当成
+     * JavaBean 属性输出成 {@code "success": false}，污染对前端的契约。
+     */
+    @JsonIgnore
     public boolean isSuccess() {
         return code == ErrorCode.SUCCESS.code();
     }

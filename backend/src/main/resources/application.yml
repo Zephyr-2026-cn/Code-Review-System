@@ -126,6 +126,8 @@ app:
       - /swagger-ui.html
   bootstrap:
     # 首次启动自动创建超级管理员，创建后请立即修改密码
+    # 置为 false 可完全关闭引导逻辑（例如生产环境由 DBA 预置账号）
+    enabled: ${APP_BOOTSTRAP_ENABLED:true}
     admin-username: ${APP_ADMIN_USERNAME:admin}
     admin-password: ${APP_ADMIN_PASSWORD:Admin@123456}
   async:
