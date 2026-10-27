@@ -58,17 +58,30 @@ AI-CodeReview/
 
 ## 五、快速启动
 
-### 1. 启动中间件
+> 完整版（含逐项验收清单、故障速查、容器职责说明）见 [`docs/00-本地启动与验收手册.md`](docs/00-本地启动与验收手册.md)。
+> 下面是五分钟最短路径。
 
-```bash
-cd deploy
-cp .env.example .env          # 按需修改；.env 已在 .gitignore 中，不会被提交
-docker compose -f docker-compose.dev.yml up -d
-docker compose -f docker-compose.dev.yml ps      # 四个服务都应为 healthy
+### 0. 环境自检
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\preflight.ps1
 ```
 
-首次启动 `embedding` 需下载约 2.2GB 的 BGE-M3 模型，耗时取决于网络。
-模型缓存在 `tei-cache` 卷中，后续重启不再下载。
+逐项检查 JDK 21 / Maven / Node / Docker / 端口占用，全绿再往下走。
+
+### 1. 启动中间件
+
+```powershell
+Copy-Item deploy\.env.example deploy\.env     # 按需填 APP_JWT_SECRET、APP_REPO_SECRET_KEY
+docker compose --env-file deploy\.env -f deploy\docker-compose.dev.yml up -d postgres redis
+docker compose --env-file deploy\.env -f deploy\docker-compose.dev.yml ps
+```
+
+当前阶段（M0/M1）**只需要 `postgres` 和 `redis`**：MinIO 到 M6「代码包上传」才用，`embedding` 是 M3 语义审查才需要的（首次启动要下 2.2GB 的 BGE-M3 模型）。
+需要时单独 `up -d embedding`，模型缓存在 `tei-cache` 卷中，后续重启不再重复下载。
+
+> ⚠️ `deploy/.env` 只被 Docker Compose 读取，Spring Boot **不会**读它 —— 后端读的是操作系统环境变量。
+> 两边默认值一致（`codereview/codereview@localhost:5432`），所以不配也能跑；只有改端口/密码时才需要把同样的值 export 给后端。
 
 ### 2. 启动后端
 
@@ -142,7 +155,7 @@ npm run dev
 | 阶段 | 内容 | 状态 |
 |---|---|---|
 | M0 | 环境与骨架、Flyway 建库、JWT 登录链路 | ✅ 已完成 |
-| M1 | 用户/角色/权限管理、项目与仓库接入 | ⬜ 待开发 |
+| M1 | 用户/角色/权限管理、项目与仓库接入 | ✅ 已完成 |
 | M2 | 任务状态机 + Redis 队列 + PMD 引擎 + 引擎 SPI | ⬜ |
 | M3 | 增量切片 + LLM 语义引擎 + 结构化输出 | ⬜ |
 | M4 | 融合算法 + 报告接口 + 报告页 | ⬜ |
