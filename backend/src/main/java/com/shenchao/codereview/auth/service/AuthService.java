@@ -108,7 +108,7 @@ public class AuthService {
 
         LoginUser loginUser = buildLoginUser(user);
         log.info("用户登录成功: username={}, userId={}, roles={}", user.getUsername(), user.getId(), loginUser.roles());
-        return issueTokens(loginUser);
+        return issueTokens(loginUser, user.mustResetPassword());
     }
 
     // ================= 刷新 =================
@@ -126,7 +126,7 @@ public class AuthService {
             throw new BizException(ErrorCode.ACCOUNT_DISABLED);
         }
 
-        return issueTokens(buildLoginUser(user));
+        return issueTokens(buildLoginUser(user), user.mustResetPassword());
     }
 
     // ================= 登出 =================
@@ -157,7 +157,7 @@ public class AuthService {
             throw new BizException(ErrorCode.USER_NOT_FOUND);
         }
         return new UserProfile(user.getId(), user.getUsername(), user.getNickname(), user.getEmail(),
-                List.copyOf(loginUser.roles()), loginUser.permissions());
+                List.copyOf(loginUser.roles()), loginUser.permissions(), user.mustResetPassword());
     }
 
     // ================= 修改密码 =================
@@ -179,21 +179,24 @@ public class AuthService {
         SysUser update = new SysUser();
         update.setId(user.getId());
         update.setPassword(passwordEncoder.encode(request.newPassword()));
+        // 用户自主完成改密后，强制改密标记清除
+        update.setPasswordResetRequired(false);
         userMapper.updateById(update);
 
-        // 改密后强制重新登录：拉黑当前令牌，前端收到后跳登录页
+        // 改密后强制重新登录：拉黑当前令牌 + 吊销该用户全部在途会话（其他设备同步下线）
         logout(loginUser, null);
+        tokenStore.revokeUserSessions(user.getId());
         log.info("用户修改密码成功: username={}", user.getUsername());
     }
 
     // ================= 内部方法 =================
 
-    private AuthResult issueTokens(LoginUser loginUser) {
+    private AuthResult issueTokens(LoginUser loginUser, boolean passwordResetRequired) {
         JwtTokenProvider.IssuedToken accessToken = tokenProvider.issueAccessToken(loginUser);
         String refreshToken = tokenStore.createRefreshToken(loginUser.userId(), jwtProperties.refreshTokenTtl());
 
         UserProfile profile = new UserProfile(loginUser.userId(), loginUser.username(), loginUser.nickname(),
-                null, List.copyOf(loginUser.roles()), loginUser.permissions());
+                null, List.copyOf(loginUser.roles()), loginUser.permissions(), passwordResetRequired);
 
         return new AuthResult(accessToken.token(), accessToken.expiresIn(), refreshToken, profile);
     }

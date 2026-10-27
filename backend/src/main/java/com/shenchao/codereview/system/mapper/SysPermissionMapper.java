@@ -6,6 +6,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
+import java.util.Collection;
 import java.util.List;
 
 @Mapper
@@ -35,4 +36,43 @@ public interface SysPermissionMapper extends BaseMapper<SysPermission> {
             ORDER BY p.code
             """)
     List<String> selectCodesByRoleId(@Param("roleId") Long roleId);
+
+    /** 全部权限点，按"父级在前、同级按 sortOrder"排序，供构树使用。 */
+    @Select("""
+            SELECT *
+            FROM sys_permission
+            ORDER BY COALESCE(parent_id, 0), sort_order, id
+            """)
+    List<SysPermission> selectAllOrdered();
+
+    /**
+     * 从给定 ID 集合中筛出真实存在的权限点 ID。
+     *
+     * <p>分配权限前必须做这个校验：前端传来的 ID 可能已被清理，
+     * 直接批量 insert 会撞外键约束并抛出 500，属于"本可避免的服务端错误"。
+     */
+    @Select("""
+            <script>
+            SELECT id
+            FROM sys_permission
+            WHERE id IN
+            <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+            </script>
+            """)
+    List<Long> selectExistingIds(@Param("ids") Collection<Long> ids);
+
+    /** 统计权限点数量，用于启动自检与前端树构建的完整性校验。 */
+    @Select("SELECT count(1) FROM sys_permission")
+    long countAll();
+
+    /** 按 ID 集合查询权限点编码，用于提权校验（授予的权限必须是操作者已有权限的子集）。 */
+    @Select("""
+            <script>
+            SELECT code
+            FROM sys_permission
+            WHERE id IN
+            <foreach collection="ids" item="id" open="(" separator="," close=")">#{id}</foreach>
+            </script>
+            """)
+    List<String> selectCodesByIds(@Param("ids") Collection<Long> ids);
 }

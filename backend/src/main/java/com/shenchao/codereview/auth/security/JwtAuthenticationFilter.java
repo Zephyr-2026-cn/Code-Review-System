@@ -73,6 +73,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             }
 
             Long userId = parseUserId(claims);
+
+            // 账号被禁用/改密/调角色后，服务端会推高该用户的"吊销水位线"，此前签发的令牌全部作废
+            if (tokenStore.isSessionRevoked(userId, claims.getIssuedAt() == null
+                    ? null : claims.getIssuedAt().toInstant())) {
+                log.debug("令牌已被用户级吊销: userId={}, jti={}", userId, claims.getId());
+                writeError(response, ErrorCode.SESSION_REVOKED);
+                return;
+            }
+
             Set<String> permissions = permissionCacheService.permissionsOf(userId);
             LoginUser loginUser = tokenProvider.toLoginUser(claims, permissions);
 

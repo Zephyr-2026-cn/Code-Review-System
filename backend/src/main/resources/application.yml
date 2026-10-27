@@ -143,3 +143,21 @@ app:
     allowed-origins: ${APP_CORS_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
   # 刷新令牌 Cookie 是否仅 HTTPS 传输；开发环境 http 必须为 false，生产必须为 true
   cookie-secure: ${APP_COOKIE_SECURE:false}
+
+  # ------------------------------------------------------------
+  # Git 仓库接入
+  # ------------------------------------------------------------
+  git:
+    # 本地克隆根目录，每个项目一个子目录（目录名 = 项目编码）
+    workspace: ${APP_GIT_WORKSPACE:./data/repos}
+    # 单次克隆/拉取超时，避免大仓库长期占用线程
+    clone-timeout: 120s
+    # 克隆后工作目录体积上限（MB），超限自动清理并判失败
+    max-repo-size-mb: 500
+    # 是否允许 http:// 明文地址（默认禁止，凭据会在网络上裸奔）
+    allow-http: ${APP_GIT_ALLOW_HTTP:false}
+    # 是否允许访问内网/回环地址（SSRF 防护开关，仅本地演示时临时打开）
+    allow-private-network: ${APP_GIT_ALLOW_PRIVATE_NETWORK:false}
+    # 凭据加密密钥（Base64，解码后必须 32 字节）。留空则私有仓库凭据功能不可用，公开仓库不受影响
+    # 生成方式：openssl rand -base64 32
+    credential-key: ${APP_REPO_SECRET_KEY:}

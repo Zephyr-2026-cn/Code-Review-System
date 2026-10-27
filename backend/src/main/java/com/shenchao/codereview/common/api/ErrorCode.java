@@ -30,6 +30,8 @@ public enum ErrorCode {
     PAYLOAD_TOO_LARGE(40002, "请求体过大", HttpStatus.PAYLOAD_TOO_LARGE),
     UNSUPPORTED_MEDIA_TYPE(40003, "不支持的请求格式", HttpStatus.UNSUPPORTED_MEDIA_TYPE),
     REQUEST_METHOD_NOT_SUPPORTED(40004, "请求方法不支持", HttpStatus.METHOD_NOT_ALLOWED),
+    REPO_URL_INVALID(40005, "仓库地址不合法", HttpStatus.BAD_REQUEST),
+    REPO_BRANCH_NOT_FOUND(40006, "分支不存在", HttpStatus.BAD_REQUEST),
 
     // ---------- 认证 ----------
     UNAUTHORIZED(40100, "未登录或登录已失效", HttpStatus.UNAUTHORIZED),
@@ -44,11 +46,18 @@ public enum ErrorCode {
     FORBIDDEN(40300, "无权访问该资源", HttpStatus.FORBIDDEN),
     PERMISSION_DENIED(40301, "缺少操作权限", HttpStatus.FORBIDDEN),
     ROLE_DENIED(40302, "当前角色不允许该操作", HttpStatus.FORBIDDEN),
+    SELF_OPERATION_FORBIDDEN(40303, "不能对当前登录账号执行该操作", HttpStatus.FORBIDDEN),
+    BUILTIN_ROLE_PROTECTED(40304, "内置角色不允许该操作", HttpStatus.FORBIDDEN),
+    PRIVILEGE_ESCALATION(40305, "不能授予超出自身权限范围的角色", HttpStatus.FORBIDDEN),
+    SESSION_REVOKED(40306, "账号权限已变更，请重新登录", HttpStatus.FORBIDDEN),
 
     // ---------- 资源 ----------
     NOT_FOUND(40400, "资源不存在", HttpStatus.NOT_FOUND),
     USER_NOT_FOUND(40401, "用户不存在", HttpStatus.NOT_FOUND),
     PROJECT_NOT_FOUND(40402, "项目不存在", HttpStatus.NOT_FOUND),
+    ROLE_NOT_FOUND(40403, "角色不存在", HttpStatus.NOT_FOUND),
+    PERMISSION_NOT_FOUND(40404, "权限点不存在", HttpStatus.NOT_FOUND),
+    REPO_NOT_FOUND(40405, "代码仓库不存在", HttpStatus.NOT_FOUND),
 
     // ---------- 冲突 ----------
     CONFLICT(40900, "资源状态冲突", HttpStatus.CONFLICT),
@@ -56,6 +65,10 @@ public enum ErrorCode {
     ROLE_CODE_EXISTS(40902, "角色编码已存在", HttpStatus.CONFLICT),
     TASK_STATE_CONFLICT(40903, "任务当前状态不允许该操作", HttpStatus.CONFLICT),
     IDEMPOTENT_CONFLICT(40904, "重复提交，已返回首次结果", HttpStatus.CONFLICT),
+    LAST_ADMIN_PROTECTED(40905, "系统至少需保留一个启用状态的管理员", HttpStatus.CONFLICT),
+    ROLE_IN_USE(40906, "角色仍被用户引用，无法删除", HttpStatus.CONFLICT),
+    REPO_ALREADY_EXISTS(40907, "该仓库已接入，请勿重复添加", HttpStatus.CONFLICT),
+    REPO_BUSY(40908, "仓库正在被其他操作占用，请稍后重试", HttpStatus.CONFLICT),
 
     // ---------- 限流 ----------
     TOO_MANY_REQUESTS(42900, "请求过于频繁，请稍后再试", HttpStatus.TOO_MANY_REQUESTS),

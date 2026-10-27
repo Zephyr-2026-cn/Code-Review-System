@@ -40,6 +40,9 @@ public class SysUser {
 
     private OffsetDateTime lastLoginAt;
 
+    /** 为 true 时用户登录后必须先改密码（管理员创建账号或重置密码后置位）。 */
+    private Boolean passwordResetRequired;
+
     @TableField(fill = FieldFill.INSERT)
     private OffsetDateTime createdAt;
 
@@ -54,5 +57,10 @@ public class SysUser {
 
     public boolean isEnabled() {
         return STATUS_ENABLED.equals(status);
+    }
+
+    /** 是否需要强制改密。null 视为否（兼容升级前的历史数据）。 */
+    public boolean mustResetPassword() {
+        return Boolean.TRUE.equals(passwordResetRequired);
     }
 }

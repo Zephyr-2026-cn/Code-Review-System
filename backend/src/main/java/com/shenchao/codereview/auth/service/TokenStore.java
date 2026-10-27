@@ -1,5 +1,6 @@
 package com.shenchao.codereview.auth.service;
 
+import com.shenchao.codereview.auth.security.JwtProperties;
 import com.shenchao.codereview.common.api.ErrorCode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -8,6 +9,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -32,8 +34,10 @@ public class TokenStore {
     private static final String BLACKLIST_KEY_PREFIX = "auth:blacklist:";
     private static final String LOGIN_FAIL_KEY_PREFIX = "auth:loginfail:";
     private static final String LOGIN_LOCK_KEY_PREFIX = "auth:loginlock:";
+    private static final String USER_REVOKE_KEY_PREFIX = "auth:revoke:";
 
     private final StringRedisTemplate redisTemplate;
+    private final JwtProperties jwtProperties;
 
     // ---------------- 刷新令牌 ----------------
 
@@ -107,6 +111,60 @@ public class TokenStore {
             return Boolean.TRUE.equals(redisTemplate.hasKey(BLACKLIST_KEY_PREFIX + jti));
         } catch (DataAccessException ex) {
             log.error("查询令牌黑名单失败，按 fail-closed 拒绝请求", ex);
+            throw new com.shenchao.codereview.common.exception.BizException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+        }
+    }
+
+    // ---------------- 用户级会话吊销 ----------------
+
+    /**
+     * 吊销某用户的全部会话（禁用账号、改密、调角色后调用）。
+     *
+     * <p>为什么不用"逐条拉黑 jti"：服务端不保存访问令牌清单，
+     * 无法枚举一个用户名下所有在途令牌。改用"吊销水位线"——
+     * 记录一个毫秒时间戳，任何签发时间早于水位线的令牌一律拒绝。
+     * 水位线 TTL 只需覆盖访问令牌最长存活期，过期自动清理，无垃圾数据。
+     *
+     * @param userId 目标用户
+     */
+    public void revokeUserSessions(Long userId) {
+        if (userId == null) {
+            return;
+        }
+        long watermark = System.currentTimeMillis();
+        // 多留 1 分钟余量：水位线必须比任何在途令牌的存活期更长，否则存在"刚过期即重新可用"的窗口
+        Duration ttl = jwtProperties.accessTokenTtl().plusMinutes(1);
+        try {
+            redisTemplate.opsForValue().set(USER_REVOKE_KEY_PREFIX + userId, String.valueOf(watermark), ttl);
+            log.info("已吊销用户全部会话: userId={}, watermark={}", userId, watermark);
+        } catch (DataAccessException ex) {
+            // fail-closed 的另一面：这里不能静默失败，否则禁用账号后旧令牌仍可用
+            log.error("吊销用户会话失败，Redis 不可用: userId={}", userId, ex);
+            throw new com.shenchao.codereview.common.exception.BizException(ErrorCode.DEPENDENCY_UNAVAILABLE);
+        }
+    }
+
+    /**
+     * 判断令牌是否已被用户级吊销。
+     *
+     * @param userId   令牌归属用户
+     * @param issuedAt 令牌签发时间，可为 null（历史令牌无 iat 时按未吊销处理，靠过期兜底）
+     */
+    public boolean isSessionRevoked(Long userId, Instant issuedAt) {
+        if (userId == null || issuedAt == null) {
+            return false;
+        }
+        try {
+            String watermark = redisTemplate.opsForValue().get(USER_REVOKE_KEY_PREFIX + userId);
+            if (watermark == null) {
+                return false;
+            }
+            return issuedAt.toEpochMilli() <= Long.parseLong(watermark);
+        } catch (NumberFormatException ex) {
+            log.warn("用户吊销水位线数据异常，按未吊销处理: userId={}", userId);
+            return false;
+        } catch (DataAccessException ex) {
+            log.error("查询用户吊销水位线失败，按 fail-closed 拒绝请求", ex);
             throw new com.shenchao.codereview.common.exception.BizException(ErrorCode.DEPENDENCY_UNAVAILABLE);
         }
     }

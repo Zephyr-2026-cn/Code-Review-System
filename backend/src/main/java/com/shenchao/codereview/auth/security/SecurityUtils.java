@@ -49,4 +49,27 @@ public final class SecurityUtils {
         }
         throw new BizException(ErrorCode.PERMISSION_DENIED);
     }
+
+    /**
+     * 资源归属校验：仅资源所有者本人或管理员可操作。
+     *
+     * <p>与 {@link #requireSelfOrPermission} 的区别：这里<b>不接受</b>额外权限点，
+     * 用于"项目、凭据"这类强归属资源——团队里即便有人拥有编辑权限，
+     * 也不应该能改别人接入的项目配置（否则会把别人的仓库地址改成自己的，制造供应链风险）。
+     */
+    public static void requireOwnerOrAdmin(Long ownerId) {
+        LoginUser user = requireUser();
+        if (user.isAdmin()) {
+            return;
+        }
+        if (ownerId != null && ownerId.equals(user.userId())) {
+            return;
+        }
+        throw new BizException(ErrorCode.PERMISSION_DENIED, "仅资源所有者或管理员可执行该操作");
+    }
+
+    /** 是否为管理员（无上下文用户时返回 false，不做异常抛出）。 */
+    public static boolean isAdmin() {
+        return LoginUser.currentUser().map(LoginUser::isAdmin).orElse(false);
+    }
 }
