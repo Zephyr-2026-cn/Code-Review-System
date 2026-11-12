@@ -3,7 +3,10 @@
 # 敏感项一律走环境变量，禁止硬编码；变量清单见 deploy/.env.example
 # ============================================================
 server:
-  port: ${SERVER_PORT:8080}
+  # 变量名必须带 APP_ 前缀：SERVER_PORT 是个极易撞车的通用名，
+  # 宿主工具（IDE / 桌面端 / 容器平台）经常自行为子进程注入同名变量，
+  # 会把端口悄悄改掉，表现为"启动失败：端口 xxx 已被占用"。
+  port: ${APP_SERVER_PORT:8080}
   shutdown: graceful
   servlet:
     context-path: /api

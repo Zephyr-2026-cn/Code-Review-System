@@ -166,7 +166,9 @@ $envFile = Join-Path $PSScriptRoot '..\deploy\.env'
 if (-not (Test-Path $envFile)) {
     Add-Row 'deploy\.env' 'WARN' '不存在，将使用全部默认值（可跑通，但 JWT 会用源码里的 dev 密钥）'
 } else {
-    $content = Get-Content $envFile -Raw
+    # 必须显式指定 UTF8：文件含中文注释，PS 5.1 默认按 ANSI 读取会乱码，
+    # 乱码字符还会吞掉换行，导致后面的键被判定成"未配置"。
+    $content = Get-Content $envFile -Raw -Encoding UTF8
     $jwtFilled = $content -match '(?m)^\s*APP_JWT_SECRET\s*=\s*\S'
     $repoFilled = $content -match '(?m)^\s*APP_REPO_SECRET_KEY\s*=\s*\S'
     if ($jwtFilled) { Add-Row 'APP_JWT_SECRET' 'PASS' '已配置' }
@@ -195,7 +197,13 @@ foreach ($check in $portChecks) {
         $ownerPid = $listener.OwningProcess
         $proc = Get-Process -Id $ownerPid -ErrorAction SilentlyContinue
         $procName = if ($proc) { $proc.ProcessName } else { "PID $ownerPid" }
-        Add-Row $label 'WARN' "被 $procName 占用 · $($check.Note)"
+        # Docker Desktop 的端口映射由 wslrelay / com.docker.backend 持有，
+        # 这是容器正常工作的表现，不该报成"本机自装服务占用"。
+        if ($procName -match 'wslrelay|docker|vpnkit') {
+            Add-Row $label 'PASS' "Docker 端口映射（容器正常）"
+        } else {
+            Add-Row $label 'WARN' "被 $procName 占用 · $($check.Note)"
+        }
     } else {
         Add-Row $label 'PASS' '空闲'
     }
