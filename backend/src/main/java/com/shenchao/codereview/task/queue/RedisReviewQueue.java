@@ -69,33 +69,34 @@ public class RedisReviewQueue implements ReviewQueue {
         }
     }
 
+    /**
+     * 阻塞拉取一条消息。
+     *
+     * <p>异常不在这里吞：worker 只有收到异常才会退避。若在此处 catch 后返回 empty，
+     * worker 会立刻进入下一轮 poll，Redis 持续故障时就是每秒数万次的空转。
+     */
     @Override
     public Optional<QueueMessage> poll(Duration block) {
-        try {
-            ensureGroup();
-            List<MapRecord<String, String, String>> records = streamOps().read(
-                    Consumer.from(properties.consumerGroup(), consumerName),
-                    StreamReadOptions.empty().count(1).block(block),
-                    StreamOffset.create(properties.queueKey(), ReadOffset.lastConsumed()));
+        ensureGroup();
+        List<MapRecord<String, String, String>> records = streamOps().read(
+                Consumer.from(properties.consumerGroup(), consumerName),
+                StreamReadOptions.empty().count(1).block(block),
+                StreamOffset.create(properties.queueKey(), ReadOffset.lastConsumed()));
 
-            if (records == null || records.isEmpty()) {
-                return Optional.empty();
-            }
-
-            MapRecord<String, String, String> record = records.get(0);
-            String rawTaskId = record.getValue().get("taskId");
-            Long taskId = parseTaskId(rawTaskId);
-            if (taskId == null) {
-                // 脏消息直接确认掉，否则会阻塞队列头部
-                log.error("队列消息缺少合法 taskId，已丢弃: id={}, payload={}", record.getId(), record.getValue());
-                ack(new QueueMessage(record.getId().getValue(), null));
-                return Optional.empty();
-            }
-            return Optional.of(new QueueMessage(record.getId().getValue(), taskId));
-        } catch (RuntimeException ex) {
-            logErrorThrottled("拉取任务失败，worker 将退避重试", ex);
+        if (records == null || records.isEmpty()) {
             return Optional.empty();
         }
+
+        MapRecord<String, String, String> record = records.get(0);
+        String rawTaskId = record.getValue().get("taskId");
+        Long taskId = parseTaskId(rawTaskId);
+        if (taskId == null) {
+            // 脏消息直接确认掉，否则会阻塞队列头部
+            log.error("队列消息缺少合法 taskId，已丢弃: id={}, payload={}", record.getId(), record.getValue());
+            ack(new QueueMessage(record.getId().getValue(), null));
+            return Optional.empty();
+        }
+        return Optional.of(new QueueMessage(record.getId().getValue(), taskId));
     }
 
     @Override
@@ -153,14 +154,30 @@ public class RedisReviewQueue implements ReviewQueue {
                 log.info("已创建审查队列消费者组: stream={}, group={}",
                         properties.queueKey(), properties.consumerGroup());
             } catch (RuntimeException ex) {
-                String message = ex.getMessage() == null ? "" : ex.getMessage().toUpperCase(Locale.ROOT);
-                if (!message.contains("BUSYGROUP")) {
+                // 组已存在属于正常情况（多实例部署、重启后再次创建）。
+                // 注意不能只看 ex.getMessage()：Spring Data Redis 会把错误包装成
+                // "Error in execution"，真正的 BUSYGROUP 在 cause 链末端，
+                // 判断失误会让 worker 每一轮都重建组，形成空转刷日志的死循环。
+                if (!isGroupAlreadyExists(ex)) {
                     throw ex;
                 }
-                // 组已存在属于正常情况
             }
             groupReady = true;
         }
+    }
+
+    /** 沿 cause 链找 BUSYGROUP：不依赖具体客户端异常类型，Lettuce/Jedis 都能识别。 */
+    private boolean isGroupAlreadyExists(RuntimeException ex) {
+        for (Throwable cause = ex; cause != null; cause = cause.getCause()) {
+            String message = cause.getMessage();
+            if (message != null && message.toUpperCase(Locale.ROOT).contains("BUSYGROUP")) {
+                return true;
+            }
+            if (cause.getCause() == cause) {
+                break;
+            }
+        }
+        return false;
     }
 
     private StreamOperations<String, String, String> streamOps() {

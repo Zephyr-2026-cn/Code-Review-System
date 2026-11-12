@@ -37,6 +37,9 @@ public class ReviewWorkerPool implements SmartLifecycle {
     private final List<Thread> workers = new ArrayList<>();
     private volatile boolean running;
 
+    /** 拉取失败时的日志限流：Redis 长时间不可用时不能每轮打一条完整堆栈。 */
+    private volatile long lastErrorLogAt;
+
     @Override
     public void start() {
         if (!Boolean.TRUE.equals(properties.enabled())) {
@@ -103,11 +106,23 @@ public class ReviewWorkerPool implements SmartLifecycle {
                 if (Thread.currentThread().isInterrupted()) {
                     break;
                 }
-                log.error("worker 拉取任务失败，{} 后重试", properties.idleBackoff(), ex);
+                logFetchFailure(ex);
                 sleepQuietly();
             }
         }
         log.debug("worker 循环退出: {}", threadName);
+    }
+
+    /** 一分钟内只打一次完整堆栈，其余退化为单行告警。 */
+    private void logFetchFailure(Throwable ex) {
+        long now = System.currentTimeMillis();
+        if (now - lastErrorLogAt > 60_000L) {
+            lastErrorLogAt = now;
+            log.error("worker 拉取任务失败，{} 后重试", properties.idleBackoff(), ex);
+        } else {
+            log.warn("worker 拉取任务失败，{} 后重试（同类错误已限流）: {}",
+                    properties.idleBackoff(), ex.getMessage());
+        }
     }
 
     private void sleepQuietly() {

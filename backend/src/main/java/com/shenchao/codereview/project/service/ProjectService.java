@@ -82,7 +82,13 @@ public class ProjectService {
 
         Map<Long, String> credentialNames = loadCredentialNames(page.getRecords());
         List<ProjectVO> records = page.getRecords().stream()
-                .map(project -> ProjectVO.from(project, credentialNames.get(project.getCredentialId())))
+                .map(project -> {
+                    // 公开仓库不绑凭据，credentialId 为 null；
+                    // 空映射（Map.of）不接受 null 键查询，必须先判空再 get
+                    Long credentialId = project.getCredentialId();
+                    String credentialName = credentialId == null ? null : credentialNames.get(credentialId);
+                    return ProjectVO.from(project, credentialName);
+                })
                 .toList();
 
         return PageResult.of(records, page.getTotal(), page.getCurrent(), page.getSize());

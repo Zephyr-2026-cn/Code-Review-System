@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.util.stream.Collectors;
 
@@ -120,8 +121,16 @@ public class GlobalExceptionHandler {
                 .body(Result.fail(ErrorCode.REQUEST_METHOD_NOT_SUPPORTED));
     }
 
-    @ExceptionHandler(NoHandlerFoundException.class)
-    public ResponseEntity<Result<Void>> handleNoHandler(NoHandlerFoundException ex) {
+    /**
+     * 找不到处理器。
+     *
+     * <p>Spring Boot 3 默认不开 {@code throw-exception-if-no-handler-found}，
+     * 未匹配的路径会落到静态资源处理器并抛 {@link NoResourceFoundException}，
+     * 只拦 {@code NoHandlerFoundException} 的话会被兜底的 Exception 处理器
+     * 转成 50000「系统繁忙」，把客户端写错 URL 伪装成服务端故障。
+     */
+    @ExceptionHandler({NoHandlerFoundException.class, NoResourceFoundException.class})
+    public ResponseEntity<Result<Void>> handleNoHandler(Exception ex) {
         return ResponseEntity.status(ErrorCode.NOT_FOUND.httpStatus()).body(Result.fail(ErrorCode.NOT_FOUND));
     }
 
