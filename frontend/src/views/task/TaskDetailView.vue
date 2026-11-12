@@ -677,7 +677,9 @@ function flagTagType(flag?: string | null): 'success' | 'warning' | 'info' | 'pr
                 <span class="mono line-no">:{{ selectedIssue.startLine }}</span>
                 <el-button :icon="CopyDocument" link size="small" @click="copyLocation" />
               </template>
-              <span v-else class="cr-text-muted">从左侧选择一条缺陷</span>
+              <span v-else class="cr-text-muted">
+                {{ allIssues.length ? '从左侧选择一条缺陷' : '本次审查未发现缺陷' }}
+              </span>
             </div>
             <div class="detail-actions">
               <el-radio-group v-model="viewMode" size="small">
@@ -700,7 +702,12 @@ function flagTagType(flag?: string | null): 'success' | 'warning' | 'info' | 'pr
         </template>
 
         <div v-if="!selectedIssue" class="detail-placeholder">
-          <el-empty description="选择左侧缺陷后，这里会显示代码位置与双引擎证据" :image-size="80" />
+          <el-empty
+            :description="allIssues.length
+              ? '选择左侧缺陷后，这里会显示代码位置与双引擎证据'
+              : '本次审查未发现缺陷'"
+            :image-size="80"
+          />
         </div>
 
         <template v-else>

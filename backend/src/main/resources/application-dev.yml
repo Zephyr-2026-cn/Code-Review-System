@@ -31,8 +31,16 @@ spring:
 
 mybatis-plus:
   configuration:
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    # 不要用 StdOutImpl：它绕过日志框架直接把结果集打到 stdout，
+    # logging.level 管不住，一条 SQL 返回 500 行就刷 500 行（内容里还常带 "ERROR" 字样，
+    # 排查问题时极容易被误判成异常）。走 slf4j 才能按包控制级别。
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
 
 logging:
   level:
     com.shenchao.codereview: DEBUG
+    # 需要看 SQL 时把下面几行临时改成 DEBUG 即可，不用重启配置框架
+    com.shenchao.codereview.auth.mapper: INFO
+    com.shenchao.codereview.project.mapper: INFO
+    com.shenchao.codereview.system.mapper: INFO
+    com.shenchao.codereview.task.mapper: INFO
