@@ -32,6 +32,10 @@ export const useAppStore = defineStore('app', () => {
     sidebarCollapsed.value = !sidebarCollapsed.value
   }
 
+  function setSidebarCollapsed(collapsed: boolean): void {
+    sidebarCollapsed.value = collapsed
+  }
+
   watch(
     theme,
     (mode) => {
@@ -45,5 +49,5 @@ export const useAppStore = defineStore('app', () => {
     localStorage.setItem(SIDEBAR_KEY, collapsed ? '1' : '0')
   })
 
-  return { theme, sidebarCollapsed, setTheme, toggleTheme, toggleSidebar, applyTheme }
+  return { theme, sidebarCollapsed, setTheme, toggleTheme, toggleSidebar, setSidebarCollapsed, applyTheme }
 })

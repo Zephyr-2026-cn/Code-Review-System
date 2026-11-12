@@ -117,4 +117,107 @@ class DiffSlicerTest {
                 .hasMessageContaining("工作目录");
         Files.deleteIfExists(empty);
     }
+
+    @Test
+    @DisplayName("单文件差异带行号与增删类型")
+    void fileDiffCarriesLineNumbersAndTypes() {
+        DiffSlicer.FileDiff diff = slicer.fileDiff(workspace, first.getName(), second.getName(), "A.java", 1, 100, 0);
+
+        assertThat(diff).isNotNull();
+        assertThat(diff.hunks()).isNotEmpty();
+        assertThat(diff.truncated()).isFalse();
+
+        List<DiffSlicer.DiffLine> lines = diff.hunks().get(0).lines();
+        // 旧文件只有一行 class A {}，被替换成三行
+        assertThat(lines).anyMatch(line -> DiffSlicer.LINE_DELETE.equals(line.type())
+                && "class A {}".equals(line.text()) && line.oldLine() == 1 && line.newLine() == 0);
+        assertThat(lines).anyMatch(line -> DiffSlicer.LINE_ADD.equals(line.type())
+                && "    int x;".equals(line.text()) && line.oldLine() == 0);
+        // 新增行必须带新文件行号，报告页靠它做"滚到行"
+        DiffSlicer.DiffLine added = lines.stream()
+                .filter(line -> DiffSlicer.LINE_ADD.equals(line.type()) && "    int x;".equals(line.text()))
+                .findFirst().orElseThrow();
+        assertThat(added.newLine()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("新增文件在差异里全部标为 ADD")
+    void addedFileIsAllAdditions() {
+        DiffSlicer.FileDiff diff = slicer.fileDiff(workspace, first.getName(), second.getName(), "C.java", 2, 100, 0);
+
+        assertThat(diff).isNotNull();
+        assertThat(diff.hunks()).hasSize(1);
+        assertThat(diff.hunks().get(0).lines())
+                .allMatch(line -> DiffSlicer.LINE_ADD.equals(line.type()))
+                .anyMatch(line -> "class C {}".equals(line.text()) && line.newLine() == 1);
+    }
+
+    @Test
+    @DisplayName("未变更的文件返回 null，由调用方退回只看源码")
+    void unchangedFileReturnsNull() {
+        assertThat(slicer.fileDiff(workspace, first.getName(), second.getName(), "README.md", 3, 100, 0))
+                .isNull();
+        assertThat(slicer.fileDiff(workspace, first.getName(), second.getName(), "Nope.java", 3, 100, 0))
+                .isNull();
+    }
+
+    @Test
+    @DisplayName("行数上限命中时置 truncated，不无限输出")
+    void diffRespectsLineLimit() {
+        DiffSlicer.FileDiff diff = slicer.fileDiff(workspace, first.getName(), second.getName(), "A.java", 3, 1, 0);
+
+        assertThat(diff).isNotNull();
+        assertThat(diff.truncated()).isTrue();
+        int total = diff.hunks().stream().mapToInt(hunk -> hunk.lines().size()).sum();
+        assertThat(total).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("聚焦行只返回相关差异块，避免缺陷位置落在输出之外")
+    void focusKeepsOnlyRelevantHunk() throws Exception {
+        String baseContent = lines(1, 200);
+        Files.writeString(workspace.resolve("Long.java"), baseContent);
+        RevCommit base = commit("long-base");
+
+        String headContent = baseContent
+                .replace("line 5\n", "line 5 changed\n")
+                .replace("line 150\n", "line 150 changed\n");
+        Files.writeString(workspace.resolve("Long.java"), headContent);
+        RevCommit head = commit("long-head");
+
+        DiffSlicer.FileDiff all = slicer.fileDiff(workspace, base.getName(), head.getName(),
+                "Long.java", 2, 500, 0);
+        assertThat(all.hunks()).hasSize(2);
+
+        DiffSlicer.FileDiff focused = slicer.fileDiff(workspace, base.getName(), head.getName(),
+                "Long.java", 2, 500, 151);
+        assertThat(focused.hunks()).hasSize(1);
+        assertThat(focused.hunks().get(0).lines())
+                .anyMatch(line -> "line 150 changed".equals(line.text()));
+    }
+
+    @Test
+    @DisplayName("整文件新增时以缺陷行为中心开窗，缺陷不会落在窗口外")
+    void focusWindowIncludesIssueLineInLargeHunk() throws Exception {
+        Files.writeString(workspace.resolve("Big.java"), lines(1, 500));
+        RevCommit big = commit("big");
+
+        // 相对 first 提交，Big.java 是新增文件：整个 500 行落在同一个差异块里
+        DiffSlicer.FileDiff diff = slicer.fileDiff(workspace, first.getName(), big.getName(),
+                "Big.java", 3, 100, 400);
+
+        int total = diff.hunks().stream().mapToInt(hunk -> hunk.lines().size()).sum();
+        assertThat(total).isEqualTo(100);
+        assertThat(diff.truncated()).isTrue();
+        assertThat(diff.hunks().get(0).lines())
+                .anyMatch(line -> line.newLine() == 400 && "line 400".equals(line.text()));
+    }
+
+    private static String lines(int from, int to) {
+        StringBuilder builder = new StringBuilder();
+        for (int i = from; i <= to; i++) {
+            builder.append("line ").append(i).append('\n');
+        }
+        return builder.toString();
+    }
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
 import { useAppStore } from '@/stores/app'
@@ -21,6 +21,34 @@ const visibleGroups = computed(() =>
 )
 
 const currentTitle = computed(() => (route.meta.title as string | undefined) ?? '')
+
+/**
+ * 窄屏自动收起侧边栏。
+ *
+ * 手机上 200px 的固定侧栏会把内容区压到不足 200px，报告页基本不可用。
+ * 这里只在"进入窄屏"的瞬间收起一次，之后仍允许用户手动展开——
+ * 反复强制收起会让折叠按钮看起来失灵。
+ */
+const narrowQuery = '(max-width: 900px)'
+let narrowMql: MediaQueryList | null = null
+
+function onNarrowChange(event: MediaQueryListEvent): void {
+  if (event.matches) {
+    appStore.setSidebarCollapsed(true)
+  }
+}
+
+onMounted(() => {
+  narrowMql = window.matchMedia(narrowQuery)
+  if (narrowMql.matches) {
+    appStore.setSidebarCollapsed(true)
+  }
+  narrowMql.addEventListener('change', onNarrowChange)
+})
+
+onBeforeUnmount(() => {
+  narrowMql?.removeEventListener('change', onNarrowChange)
+})
 
 // ---------------- 修改密码 ----------------
 const passwordDialogVisible = ref(false)

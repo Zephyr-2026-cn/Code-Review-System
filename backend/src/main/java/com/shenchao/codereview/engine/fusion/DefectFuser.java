@@ -165,6 +165,12 @@ public final class DefectFuser {
         evidence.put("staticConfidence", String.format(Locale.ROOT, "%.2f", staticDefect.confidence()));
         evidence.put("llmConfidence", String.format(Locale.ROOT, "%.2f", semanticDefect.confidence()));
         evidence.put("llmTitle", semanticDefect.title());
+        // 两侧原始表述分开存：报告页要并排展示"规则怎么说 / 模型怎么说"，
+        // 合并后的 description 是拼接文本，拆不开也无法判断哪句出自谁。
+        evidence.put("staticTitle", nullToEmpty(staticDefect.title()));
+        evidence.put("llmDescription", nullToEmpty(semanticDefect.description()));
+        evidence.put("llmSuggestion", nullToEmpty(semanticDefect.suggestion()));
+        evidence.put("staticDescription", nullToEmpty(staticDefect.description()));
 
         return new Defect(
                 staticDefect.filePath(),
@@ -222,6 +228,10 @@ public final class DefectFuser {
 
     private static boolean isBlank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private static String nullToEmpty(String value) {
+        return value == null ? "" : value;
     }
 
     /** 融合后的单条缺陷及其标记：flag 会落到 {@code review_issue.flag}。 */

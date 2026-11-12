@@ -132,6 +132,54 @@ export interface IssueQuery {
   filePath?: string
 }
 
+/** 代码行：行号由后端算好，前端不再做偏移运算。 */
+export interface CodeLine {
+  no: number
+  text: string
+}
+
+export type DiffLineType = 'CONTEXT' | 'ADD' | 'DELETE'
+
+export interface DiffLine {
+  type: DiffLineType
+  /** 旧文件行号，新增行为 0 */
+  oldLine: number
+  /** 新文件行号，删除行为 0 */
+  newLine: number
+  text: string
+}
+
+export interface DiffHunk {
+  oldStart: number
+  newStart: number
+  lines: DiffLine[]
+}
+
+export interface FileDiff {
+  path: string
+  hunks: DiffHunk[]
+  truncated: boolean
+}
+
+/**
+ * 缺陷上下文。
+ *
+ * `notice` 非空表示代码没能正常加载（文件已删除、路径越界、文件过大），
+ * 此时 `lines` 为空但缺陷描述与证据仍然可用——报告页据此降级而不是整页报错。
+ */
+export interface IssueContext {
+  issue: IssueItem
+  filePath: string
+  language: string
+  totalLines: number
+  windowStart: number
+  windowEnd: number
+  lines: CodeLine[]
+  evidence: Record<string, string>
+  diff?: FileDiff | null
+  notice?: string | null
+}
+
 export interface TaskReport {
   task: TaskItem
   summary: {
@@ -183,6 +231,11 @@ export const issueApi = {
 
   detail(id: number): Promise<IssueItem> {
     return http.get<IssueItem>(`/issues/${id}`)
+  },
+
+  /** 代码片段 + 融合证据 + （增量任务的）差异块，报告页右侧面板一次取全。 */
+  context(id: number, contextLines?: number): Promise<IssueContext> {
+    return http.get<IssueContext>(`/issues/${id}/context`, { params: { contextLines } })
   }
 }
 
