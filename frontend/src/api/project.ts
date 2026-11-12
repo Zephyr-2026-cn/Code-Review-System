@@ -30,8 +30,16 @@ export interface ProjectItem {
   createdAt: string
 }
 
-export interface ProjectQuery {
-  page?: number
+/** 历史提交摘要（增量审查的基线候选） */
+export interface CommitInfo {
+  commitId: string
+  shortCommitId: string
+  message: string
+  author?: string | null
+  commitAt?: string | null
+}
+
+export interface ProjectQuery {  page?: number
   pageSize?: number
   keyword?: string
   syncStatus?: SyncStatus | ''
@@ -105,6 +113,11 @@ export const projectApi = {
 
   branches(id: number): Promise<string[]> {
     return http.get<string[]>(`/projects/${id}/branches`)
+  },
+
+  /** 最近提交，供增量审查选择基线（只返回本地已有的历史） */
+  commits(id: number, limit = 30): Promise<CommitInfo[]> {
+    return http.get<CommitInfo[]>(`/projects/${id}/commits`, { params: { limit } })
   }
 }
 

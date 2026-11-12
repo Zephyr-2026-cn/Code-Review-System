@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Refresh, Search, View } from '@element-plus/icons-vue'
-import { projectApi, type ProjectItem } from '@/api/project'
+import { projectApi, type CommitInfo, type ProjectItem } from '@/api/project'
 import { isTerminal, taskApi, type ReviewMode, type TaskItem, type TaskStatus } from '@/api/task'
 import { useUserStore } from '@/stores/user'
 
@@ -124,16 +124,47 @@ const creating = ref(false)
 const createForm = reactive({
   projectId: undefined as number | undefined,
   reviewMode: 'FULL' as ReviewMode,
-  spotbugs: false
+  baseCommit: '' as string,
+  spotbugs: false,
+  // 默认关闭：语义审查按 token 计费，应该由使用者主动勾选
+  llm: false,
+  /** 只在增量模式下加载，全量模式不需要 */
+  commits: [] as CommitInfo[],
+  commitsLoading: false
 })
 
 const readyProjects = computed(() => projects.value.filter((item) => item.syncStatus === 'READY'))
 
+const canSubmit = computed(() => {
+  if (!createForm.projectId) return false
+  return createForm.reviewMode === 'FULL' || Boolean(createForm.baseCommit)
+})
+
 function openCreate(): void {
   createForm.projectId = readyProjects.value[0]?.id
   createForm.reviewMode = 'FULL'
+  createForm.baseCommit = ''
   createForm.spotbugs = false
+  createForm.llm = false
+  createForm.commits = []
   createVisible.value = true
+}
+
+/** 切到增量模式时才去拉历史，避免无谓请求 */
+async function onModeChange(mode: ReviewMode): Promise<void> {
+  createForm.baseCommit = ''
+  if (mode !== 'INCREMENTAL' || !createForm.projectId) {
+    createForm.commits = []
+    return
+  }
+  createForm.commitsLoading = true
+  try {
+    const list = await projectApi.commits(createForm.projectId, 30)
+    // 第一条是当前 HEAD，把它排除：基线必须早于 HEAD 才有 diff 可算
+    createForm.commits = list.slice(1)
+  } finally {
+    createForm.commitsLoading = false
+  }
 }
 
 async function submitCreate(): Promise<void> {
@@ -141,12 +172,17 @@ async function submitCreate(): Promise<void> {
     ElMessage.warning('请选择要审查的项目')
     return
   }
+  if (createForm.reviewMode === 'INCREMENTAL' && !createForm.baseCommit) {
+    ElMessage.warning('增量审查需要选择基线提交')
+    return
+  }
   creating.value = true
   try {
     const task = await taskApi.create({
       projectId: createForm.projectId,
-      reviewMode: 'FULL',
-      engineFlags: { pmd: true, spotbugs: createForm.spotbugs, llm: false, rag: false }
+      reviewMode: createForm.reviewMode,
+      baseCommit: createForm.reviewMode === 'INCREMENTAL' ? createForm.baseCommit : undefined,
+      engineFlags: { pmd: true, spotbugs: createForm.spotbugs, llm: createForm.llm, rag: false }
     })
     createVisible.value = false
     ElMessage.success(`已提交审查任务 #${task.id}`)
@@ -341,11 +377,33 @@ const formatDuration = (ms?: number | null) => {
         </el-form-item>
 
         <el-form-item label="审查模式">
-          <el-radio-group v-model="createForm.reviewMode" disabled>
+          <el-radio-group v-model="createForm.reviewMode" @change="onModeChange(createForm.reviewMode)">
             <el-radio value="FULL">全量</el-radio>
-            <el-radio value="INCREMENTAL">增量（M4）</el-radio>
+            <el-radio value="INCREMENTAL">增量</el-radio>
           </el-radio-group>
-          <div class="form-tip">当前版本扫描项目当前提交的全部 Java 源码；增量切片在 M4 提供</div>
+          <div class="form-tip">
+            全量扫描当前提交的全部源码；增量只审查基线到当前 HEAD 之间的变更文件，速度快、省 token
+          </div>
+        </el-form-item>
+
+        <el-form-item v-if="createForm.reviewMode === 'INCREMENTAL'" label="基线提交" required>
+          <el-select
+            v-model="createForm.baseCommit"
+            :loading="createForm.commitsLoading"
+            placeholder="选择上线的那个提交"
+            filterable
+            style="width: 100%"
+          >
+            <el-option
+              v-for="commit in createForm.commits"
+              :key="commit.commitId"
+              :label="`${commit.shortCommitId} ${commit.message}`"
+              :value="commit.commitId"
+            />
+          </el-select>
+          <div v-if="!createForm.commitsLoading && !createForm.commits.length" class="form-tip">
+            本地没有更早的历史提交（浅克隆深度限制了可选范围），请先同步仓库或改用全量审查
+          </div>
         </el-form-item>
 
         <el-form-item label="引擎">
@@ -356,14 +414,14 @@ const formatDuration = (ms?: number | null) => {
               <span class="cr-text-muted">源码级，零编译依赖</span>
             </div>
             <div class="engine-item">
+              <el-switch v-model="createForm.llm" />
+              <span>大模型语义审查</span>
+              <span class="cr-text-muted">按 token 计费，只送审前 40 个文件</span>
+            </div>
+            <div class="engine-item">
               <el-switch v-model="createForm.spotbugs" />
               <span>SpotBugs</span>
               <span class="cr-text-muted">需项目可编译，演示环境建议关闭</span>
-            </div>
-            <div class="engine-item">
-              <el-switch :model-value="false" disabled />
-              <span>大模型语义审查</span>
-              <span class="cr-text-muted">M3 接入，当前未启用</span>
             </div>
           </div>
         </el-form-item>
@@ -371,7 +429,9 @@ const formatDuration = (ms?: number | null) => {
 
       <template #footer>
         <el-button @click="createVisible = false">取消</el-button>
-        <el-button type="primary" :loading="creating" @click="submitCreate">开始审查</el-button>
+        <el-button type="primary" :loading="creating" :disabled="!canSubmit" @click="submitCreate">
+          开始审查
+        </el-button>
       </template>
     </el-dialog>
   </div>

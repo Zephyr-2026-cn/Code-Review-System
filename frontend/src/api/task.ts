@@ -86,6 +86,8 @@ export interface TaskQuery {
 export interface TaskCreatePayload {
   projectId: number
   reviewMode?: ReviewMode
+  /** 增量审查的基线提交，增量模式必填 */
+  baseCommit?: string
   headCommit?: string
   engineFlags?: {
     pmd?: boolean
@@ -137,6 +139,8 @@ export interface TaskReport {
     bySeverity: Record<string, number>
     byCategory: Record<string, number>
     bySource: Record<string, number>
+    /** 融合标记分布：CROSS_VALIDATED / STATIC_ONLY / LLM_ONLY */
+    byFlag: Record<string, number>
     scannedFiles: number
     analyzedFiles: number
     truncated: boolean

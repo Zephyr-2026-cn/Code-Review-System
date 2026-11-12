@@ -7,6 +7,7 @@ import com.shenchao.codereview.project.dto.ProjectQuery;
 import com.shenchao.codereview.project.dto.ProjectUpdateRequest;
 import com.shenchao.codereview.project.dto.ProjectVO;
 import com.shenchao.codereview.project.dto.RepoBindRequest;
+import com.shenchao.codereview.project.git.GitRepositoryService;
 import com.shenchao.codereview.project.service.ProjectService;
 import com.shenchao.codereview.system.audit.Audit;
 import io.swagger.v3.oas.annotations.Operation;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -84,6 +86,15 @@ public class ProjectController {
     @Audit(action = "PROJECT_BIND_REPO", resource = "PROJECT", logArgs = true)
     public Result<ProjectVO> bindRepo(@PathVariable Long id, @Valid @RequestBody RepoBindRequest request) {
         return Result.ok(projectService.bindRepo(id, request));
+    }
+
+    @Operation(summary = "最近提交", description = "供增量审查选择基线提交；只返回本地已有的历史")
+    @GetMapping("/{id}/commits")
+    @PreAuthorize("hasAuthority('project:repo:detail') or hasAuthority('project:repo:list')")
+    public Result<List<GitRepositoryService.CommitInfo>> commits(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "30") int limit) {
+        return Result.ok(projectService.listRecentCommits(id, limit));
     }
 
     @Operation(summary = "同步仓库", description = "拉取最新代码，异步执行")

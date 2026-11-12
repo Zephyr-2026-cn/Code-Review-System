@@ -3,6 +3,8 @@ package com.shenchao.codereview.engine.spi;
 import java.util.List;
 import java.util.Set;
 
+import com.shenchao.codereview.engine.model.DefectSource;
+
 /**
  * 静态分析引擎插件接口（蓝皮书 6.2.1）。
  *
@@ -21,6 +23,17 @@ public interface StaticAnalyzer {
 
     /** 引擎标识，与 {@code engine_flags} 的键一致，例如 {@code pmd}。 */
     String name();
+
+    /**
+     * 本引擎产出的缺陷来源。
+     *
+     * <p>默认 {@link DefectSource#STATIC}；语义引擎覆盖为 {@link DefectSource#LLM}。
+     * 由引擎自己声明而不是在管道里按名字 if-else——
+     * 否则每接一个引擎就要去改编排代码，SPI 就失去意义了。
+     */
+    default DefectSource source() {
+        return DefectSource.STATIC;
+    }
 
     /** 支持的源语言，例如 {@code java}。 */
     Set<String> supportedLanguages();

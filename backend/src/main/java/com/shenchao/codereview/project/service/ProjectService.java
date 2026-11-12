@@ -26,6 +26,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -100,8 +101,23 @@ public class ProjectService {
         return ProjectVO.from(project, credentialService.nameOf(project.getCredentialId()));
     }
 
-    /** 远端分支列表，供绑定表单下拉选择。失败返回空列表而不是报错。 */
-    public List<String> listRemoteBranches(Long id) {
+    /**
+     * 最近提交列表，供增量审查选择基线。
+     *
+     * <p>只读本地对象库；浅克隆下来的仓库有多少历史就返回多少，
+     * 前端据此限制可选范围，避免用户选了一个本地不存在的提交。
+     */
+    public List<GitRepositoryService.CommitInfo> listRecentCommits(Long id, int limit) {
+        RepoProject project = requireProject(id);
+        SecurityUtils.requireOwnerOrAdmin(project.getOwnerId());
+        if (!project.isBound()) {
+            throw new BizException(ErrorCode.PARAM_INVALID, "项目尚未同步，暂无提交历史");
+        }
+        Path workDir = gitRepositoryService.resolveWorkDir(project.getCode());
+        return gitRepositoryService.listRecentCommits(workDir, limit);
+    }
+
+    /** 远端分支列表，供绑定表单下拉选择。失败返回空列表而不是报错。 */    public List<String> listRemoteBranches(Long id) {
         RepoProject project = requireProject(id);
         SecurityUtils.requireOwnerOrAdmin(project.getOwnerId());
         if (!project.isBound()) {

@@ -73,11 +73,17 @@ public class ReviewTaskService {
         if (!RepoProject.SYNC_READY.equals(project.getSyncStatus()) || project.getLastCommitId() == null) {
             throw new BizException(ErrorCode.TASK_STATE_CONFLICT, "项目仓库尚未同步完成，请先在项目页触发同步");
         }
-        if ("INCREMENTAL".equals(request.reviewMode())) {
-            // 增量审查需要 JGit diff 切块（M4），当前明确拒绝而不是偷偷按全量跑
-            throw new BizException(ErrorCode.PARAM_INVALID, "增量审查计划在 M4 提供，当前请选择全量审查");
-        }
-        if (request.baseCommit() != null && !request.baseCommit().isBlank()) {
+        boolean incremental = "INCREMENTAL".equals(request.reviewMode());
+        if (incremental) {
+            // 增量必须有基线：没有基线就无从计算 diff，与其猜一个不如明确拒绝
+            String baseCommit = request.baseCommit();
+            if (baseCommit == null || baseCommit.isBlank()) {
+                throw new BizException(ErrorCode.PARAM_INVALID, "增量审查必须指定基线提交 baseCommit");
+            }
+            if (baseCommit.equals(project.getLastCommitId())) {
+                throw new BizException(ErrorCode.PARAM_INVALID, "基线提交与当前 HEAD 相同，没有可审查的变更");
+            }
+        } else if (request.baseCommit() != null && !request.baseCommit().isBlank()) {
             throw new BizException(ErrorCode.PARAM_INVALID, "全量审查不需要基线提交");
         }
         String headCommit = project.getLastCommitId();
@@ -91,7 +97,8 @@ public class ReviewTaskService {
         task.setProjectId(project.getId());
         task.setTriggerType("MANUAL");
         task.setHeadCommit(headCommit);
-        task.setReviewMode("FULL");
+        task.setReviewMode(incremental ? "INCREMENTAL" : "FULL");
+        task.setBaseCommit(incremental ? request.baseCommit().trim() : null);
         task.setStatus(TaskStatus.CREATED.name());
         task.setCancelRequested(false);
         task.setEngineFlags(writeJson(engineFlagsOf(request.engineFlags())));
@@ -191,6 +198,7 @@ public class ReviewTaskService {
         Map<String, Long> bySeverity = toCountMap(issueMapper.countBySeverity(id));
         Map<String, Long> byCategory = toCountMap(issueMapper.countByCategory(id));
         Map<String, Long> bySource = toCountMap(issueMapper.countBySource(id));
+        Map<String, Long> byFlag = toCountMap(issueMapper.countByFlag(id));
 
         Map<String, Object> stats = vo.stats() == null ? Map.of() : vo.stats();
         TaskReportVO.ReportSummary summary = new TaskReportVO.ReportSummary(
@@ -198,6 +206,7 @@ public class ReviewTaskService {
                 bySeverity,
                 byCategory,
                 bySource,
+                byFlag,
                 intOf(stats.get("filesTotal")),
                 intOf(stats.get("filesAnalyzed")),
                 Boolean.TRUE.equals(stats.get("truncated")),
@@ -337,11 +346,11 @@ public class ReviewTaskService {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("pmd", flags == null || flags.pmdEnabled());
         map.put("spotbugs", flags != null && flags.spotbugsEnabled());
-        // LLM 与 RAG 在 M3 接入，这里如实置为 false，避免前端显示"已开启"却没有对应产出
-        if (flags != null && flags.llmEnabled()) {
-            log.info("请求开启 LLM 引擎，但语义审查尚未接入（M3），已按关闭处理");
+        map.put("llm", flags != null && flags.llmEnabled());
+        // RAG 依赖向量库，M3 只做语义审查，召回留到下一阶段：置 false 而不是让前端以为开了
+        if (flags != null && flags.ragEnabled()) {
+            log.info("请求开启 RAG 召回，但向量检索尚未接入，已按关闭处理");
         }
-        map.put("llm", false);
         map.put("rag", false);
         return map;
     }

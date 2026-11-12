@@ -25,7 +25,7 @@ class GitUrlValidatorTest {
 
     private static GitUrlValidator validator(boolean allowHttp, boolean allowPrivate) {
         return new GitUrlValidator(new GitProperties(
-                Path.of("./data/repos"), Duration.ofSeconds(30), 100, allowHttp, allowPrivate, ""));
+                Path.of("./data/repos"), Duration.ofSeconds(30), 100, allowHttp, allowPrivate, "", 50));
     }
 
     private final GitUrlValidator strict = validator(false, false);

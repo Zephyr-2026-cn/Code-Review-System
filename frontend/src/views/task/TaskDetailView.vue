@@ -209,7 +209,52 @@ const categoryRows = computed(() =>
     .sort((a, b) => b.value - a.value)
 )
 
+/** 融合构成：顺序固定为"印证 → 语义独有 → 静态独有"，避免每次刷新顺序漂移 */
+const fusionRows = computed(() => {
+  const map = report.value?.summary.byFlag ?? {}
+  return (['CROSS_VALIDATED', 'LLM_ONLY', 'STATIC_ONLY'] as const)
+    .map((flag) => ({
+      flag,
+      label: flagLabel(flag),
+      tag: flagTagType(flag),
+      count: map[flag] ?? 0
+    }))
+    .filter((row) => row.count > 0)
+})
+
 const formatTime = (value?: string | null) => (value ? value.replace('T', ' ').slice(0, 19) : '—')
+
+/**
+ * 融合标记的中文名与配色。
+ *
+ * 这是本系统相对单一工具的核心差异：双引擎都命中的缺陷可信度最高，
+ * 只被一侧发现的要区分是"规则确定但模型漏检"还是"模型独有发现"。
+ */
+function flagLabel(flag?: string | null): string {
+  switch (flag) {
+    case 'CROSS_VALIDATED':
+      return '双引擎印证'
+    case 'LLM_ONLY':
+      return '语义独有'
+    case 'STATIC_ONLY':
+      return '静态独有'
+    default:
+      return flag || '—'
+  }
+}
+
+function flagTagType(flag?: string | null): 'success' | 'warning' | 'info' | 'primary' {
+  switch (flag) {
+    case 'CROSS_VALIDATED':
+      return 'success'
+    case 'LLM_ONLY':
+      return 'warning'
+    case 'STATIC_ONLY':
+      return 'info'
+    default:
+      return 'primary'
+  }
+}
 
 const formatDuration = (ms?: number | null) => {
   if (!ms || ms < 0) return '—'
@@ -305,6 +350,20 @@ const formatDuration = (ms?: number | null) => {
       </el-card>
     </div>
 
+    <!-- 融合构成：双引擎印证的条数是最有说服力的指标，单独展示 -->
+    <el-card v-if="report && fusionRows.length" shadow="never" class="fusion-card">
+      <div class="fusion-head">
+        <span class="card-title">可信度构成</span>
+        <span class="cr-text-muted">双引擎印证 = 静态规则与大模型在同一处独立命中，误报概率最低</span>
+      </div>
+      <div class="fusion-rows">
+        <div v-for="row in fusionRows" :key="row.flag" class="fusion-row">
+          <el-tag size="small" :type="row.tag" effect="plain">{{ row.label }}</el-tag>
+          <span class="fusion-count">{{ row.count }}</span>
+        </div>
+      </div>
+    </el-card>
+
     <!-- 分布 -->
     <div v-if="report" class="dist-grid">
       <el-card shadow="never">
@@ -373,7 +432,13 @@ const formatDuration = (ms?: number | null) => {
           </template>
         </el-table-column>
 
-        <el-table-column prop="source" label="来源" width="90" />
+        <el-table-column prop="source" label="来源" width="90">
+          <template #default="{ row }">
+            <el-tag size="small" :type="flagTagType(row.flag)" effect="plain">
+              {{ flagLabel(row.flag) }}
+            </el-tag>
+          </template>
+        </el-table-column>
 
         <template #empty>
           <el-empty description="没有匹配的缺陷" :image-size="72" />
@@ -479,6 +544,35 @@ const formatDuration = (ms?: number | null) => {
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.fusion-card {
+  margin-bottom: 12px;
+}
+
+.fusion-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.fusion-rows {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.fusion-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fusion-count {
+  font-size: 20px;
+  font-weight: 600;
 }
 
 .stat-card {

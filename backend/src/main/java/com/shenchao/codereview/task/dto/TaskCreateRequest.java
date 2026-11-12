@@ -45,8 +45,8 @@ public record TaskCreateRequest(
      *
      * @param pmd      静态分析（默认开）
      * @param spotbugs 字节码分析（默认关，需要项目可编译）
-     * @param llm      语义审查（M3 才接入，当前置 true 会被忽略并记录告警）
-     * @param rag      历史缺陷召回（依赖 llm）
+     * @param llm      语义审查（大模型），需要服务端配置 DEEPSEEK_API_KEY，默认关（按 token 计费）
+     * @param rag      历史缺陷召回（依赖 llm，M3 之后接入）
      */
     @Schema(description = "引擎开关")
     public record EngineFlags(Boolean pmd, Boolean spotbugs, Boolean llm, Boolean rag) {

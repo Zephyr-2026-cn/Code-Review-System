@@ -40,4 +40,9 @@ public interface ReviewIssueMapper extends BaseMapper<ReviewIssue> {
 
     @Select("SELECT source AS key, count(*) AS cnt FROM review_issue WHERE task_id = #{taskId} GROUP BY source")
     List<Map<String, Object>> countBySource(@Param("taskId") Long taskId);
+
+    /** 按融合标记统计：CROSS_VALIDATED / STATIC_ONLY / LLM_ONLY，报告页据此说明可信度构成。 */
+    @Select("SELECT flag AS key, count(*) AS cnt FROM review_issue "
+            + "WHERE task_id = #{taskId} AND flag IS NOT NULL GROUP BY flag")
+    List<Map<String, Object>> countByFlag(@Param("taskId") Long taskId);
 }

@@ -14,6 +14,8 @@ import java.time.Duration;
  * @param allowHttp            是否允许 http:// 明文仓库地址；默认禁止，避免凭据在网络上裸奔
  * @param allowPrivateNetwork  是否允许克隆内网地址（SSRF 防护开关，仅本地演示时打开）
  * @param credentialKey        凭据加密密钥（Base64，解码后必须 32 字节）；未配置则凭据功能不可用
+ * @param historyDepth         克隆深度。1 表示只要最新快照；增量审查要基于历史提交做 diff，
+ *                             需要保留若干层历史，默认 50，兼顾克隆体积与可用性
  */
 @ConfigurationProperties(prefix = "app.git")
 public record GitProperties(
@@ -22,7 +24,8 @@ public record GitProperties(
         Integer maxRepoSizeMb,
         Boolean allowHttp,
         Boolean allowPrivateNetwork,
-        String credentialKey
+        String credentialKey,
+        Integer historyDepth
 ) {
 
     public GitProperties {
@@ -32,6 +35,7 @@ public record GitProperties(
         allowHttp = allowHttp != null && allowHttp;
         allowPrivateNetwork = allowPrivateNetwork != null && allowPrivateNetwork;
         credentialKey = credentialKey == null ? "" : credentialKey;
+        historyDepth = historyDepth == null || historyDepth < 1 ? 50 : historyDepth;
     }
 
     /** 单次克隆允许的最大字节数。 */

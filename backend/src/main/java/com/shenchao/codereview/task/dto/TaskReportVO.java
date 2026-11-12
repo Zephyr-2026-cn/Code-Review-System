@@ -39,6 +39,8 @@ public record TaskReportVO(
             Map<String, Long> bySeverity,
             Map<String, Long> byCategory,
             Map<String, Long> bySource,
+            /** 融合标记分布：双引擎印证 / 静态独有 / 语义独有 */
+            Map<String, Long> byFlag,
             int scannedFiles,
             int analyzedFiles,
             boolean truncated,

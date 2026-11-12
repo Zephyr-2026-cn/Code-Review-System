@@ -190,6 +190,33 @@ app:
       chunk-size: 100
       max-violations-per-file: 200
 
+    # ----------------------------------------------------------
+    # 语义审查（大模型）
+    # ----------------------------------------------------------
+    llm:
+      enabled: ${APP_LLM_ENABLED:true}
+      # OpenAI 兼容端点；换模型只改这里与 model，不用动代码
+      base-url: ${APP_LLM_BASE_URL:https://api.deepseek.com}
+      # 密钥只从环境变量来，禁止写进配置文件
+      api-key: ${DEEPSEEK_API_KEY:}
+      model: ${APP_LLM_MODEL:deepseek-chat}
+      # 审查要可复现，温度取低值
+      temperature: 0.2
+      max-tokens: 2048
+      timeout: 90s
+      # 只重试 429/5xx/网络异常；4xx 参数错误重试无意义
+      retries: 2
+      concurrency: 4
+      # ---- 成本预算：三层收敛，按 token 计费的功能必须有硬上限 ----
+      max-files-per-task: 40
+      max-files-per-request: 4
+      max-chars-per-request: 14000
+      max-file-chars: 6000
+      max-file-bytes: 262144
+      # 低于该置信度的结果直接丢弃，模型幻觉大多落在低置信度区间
+      min-confidence: 0.5
+      max-issues-per-file: 8
+
   # ------------------------------------------------------------
   # Git 仓库接入
   # ------------------------------------------------------------
@@ -204,6 +231,8 @@ app:
     allow-http: ${APP_GIT_ALLOW_HTTP:false}
     # 是否允许访问内网/回环地址（SSRF 防护开关，仅本地演示时临时打开）
     allow-private-network: ${APP_GIT_ALLOW_PRIVATE_NETWORK:false}
+    # 克隆深度：1 只要最新快照；增量审查要基于历史做 diff，默认保留 50 层
+    history-depth: ${APP_GIT_HISTORY_DEPTH:50}
     # 凭据加密密钥（Base64，解码后必须 32 字节）。留空则私有仓库凭据功能不可用，公开仓库不受影响
     # 生成方式：openssl rand -base64 32
     credential-key: ${APP_REPO_SECRET_KEY:}

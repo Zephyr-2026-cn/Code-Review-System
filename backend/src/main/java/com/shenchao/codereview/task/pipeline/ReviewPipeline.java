@@ -4,8 +4,8 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.shenchao.codereview.common.api.ErrorCode;
 import com.shenchao.codereview.common.exception.BizException;
+import com.shenchao.codereview.engine.fusion.DefectFuser;
 import com.shenchao.codereview.engine.model.Defect;
-import com.shenchao.codereview.engine.model.DefectSource;
 import com.shenchao.codereview.engine.model.RuleCategory;
 import com.shenchao.codereview.engine.model.Severity;
 import com.shenchao.codereview.engine.spi.AnalysisContext;
@@ -30,6 +30,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.OffsetDateTime;
@@ -71,6 +72,7 @@ public class ReviewPipeline {
     private final AnalyzerRegistry analyzerRegistry;
     private final RuleMetadataService ruleMetadataService;
     private final WorkspaceScanner workspaceScanner;
+    private final DiffSlicer diffSlicer;
     private final ObjectMapper objectMapper;
     private final ReviewProperties properties;
 
@@ -130,20 +132,17 @@ public class ReviewPipeline {
                 return;
             }
 
-            // ② SLICING：收集待分析文件
+            // ② SLICING：确定待分析文件（全量扫描 or 增量 diff）
             current = TaskStatus.SLICING;
             moveTo(taskId, TaskStatus.FETCHING, TaskStatus.SLICING);
             stageStart = System.currentTimeMillis();
-            WorkspaceScanner.ScanResult scan = workspaceScanner.scan(workspace, taskId);
-            persistScannedFiles(taskId, scan);
-            stats.put("filesTotal", scan.files().size());
-            stats.put("filesSkipped", scan.skipped().size());
+            SliceOutcome slice = slice(task, workspace, stats);
             stats.put("sliceMs", elapsed(stageStart));
-            if (scan.truncated()) {
+            if (slice.truncated()) {
                 truncated = true;
                 stats.put("truncated", true);
-                warnings.add("文件数超过上限 " + properties.maxFiles() + "，仅分析前 " + scan.files().size() + " 个");
             }
+            warnings.addAll(slice.warnings());
             updateStats(taskId, stats);
             if (aborted(taskId, stats)) {
                 return;
@@ -153,13 +152,14 @@ public class ReviewPipeline {
             current = TaskStatus.ANALYZING;
             moveTo(taskId, TaskStatus.SLICING, TaskStatus.ANALYZING);
             stageStart = System.currentTimeMillis();
-            AnalysisOutcome outcome = analyze(task, project, workspace, scan.paths(), deadline, stats, warnings);
+            AnalysisOutcome outcome = analyze(task, project, workspace, slice.paths(), deadline, stats, warnings);
             stats.put("analyzeMs", elapsed(stageStart));
             stats.put("filesAnalyzed", outcome.analyzedFiles());
             truncated = truncated || outcome.truncated();
             if (outcome.truncated()) {
+                // 具体原因由引擎写进 warnings（超时 / 超出预算 / 文件数上限），
+                // 这里不再补一条笼统的"超时"，否则会把预算截断误报成超时
                 stats.put("truncated", true);
-                warnings.add("分析超时，已分析 " + outcome.analyzedFiles() + "/" + scan.files().size() + " 个文件");
             }
             updateStats(taskId, stats);
             if (aborted(taskId, stats)) {
@@ -217,6 +217,43 @@ public class ReviewPipeline {
         return workspace;
     }
 
+    /**
+     * 切片：决定这一轮到底要分析哪些文件。
+     *
+     * <p>全量模式扫工作目录，增量模式只取 {@code baseCommit..headCommit} 的变更文件。
+     * 两条路径产出同一种结构，后续分析与融合不需要知道当前是哪种模式。
+     */
+    private SliceOutcome slice(ReviewTask task, Path workspace, Map<String, Object> stats) throws IOException {
+        List<String> warnings = new ArrayList<>();
+        if ("INCREMENTAL".equalsIgnoreCase(task.getReviewMode())) {
+            DiffSlicer.DiffResult diff = diffSlicer.slice(workspace,
+                    task.getBaseCommit(), task.getHeadCommit(), properties.maxFiles());
+            persistDiffFiles(task.getId(), diff);
+            stats.put("filesTotal", diff.changes().size());
+            stats.put("filesSkipped", 0);
+            stats.put("additions", diff.additions());
+            stats.put("deletions", diff.deletions());
+            if (diff.truncated()) {
+                warnings.add("变更文件数超过上限 " + properties.maxFiles()
+                        + "，仅分析前 " + diff.changes().size() + " 个");
+            }
+            if (diff.changes().isEmpty()) {
+                warnings.add("两个提交之间没有可审查的源码变更");
+            }
+            return new SliceOutcome(diff.paths(workspace), diff.truncated(), warnings);
+        }
+
+        WorkspaceScanner.ScanResult scan = workspaceScanner.scan(workspace, task.getId());
+        persistScannedFiles(task.getId(), scan);
+        stats.put("filesTotal", scan.files().size());
+        stats.put("filesSkipped", scan.skipped().size());
+        if (scan.truncated()) {
+            warnings.add("文件数超过上限 " + properties.maxFiles()
+                    + "，仅分析前 " + scan.files().size() + " 个");
+        }
+        return new SliceOutcome(scan.paths(), scan.truncated(), warnings);
+    }
+
     private AnalysisOutcome analyze(ReviewTask task,
                                     RepoProject project,
                                     Path workspace,
@@ -256,14 +293,20 @@ public class ReviewPipeline {
             long engineStart = System.currentTimeMillis();
             try {
                 AnalysisResult result = analyzer.analyze(context);
-                analyzedFiles += result.analyzedFiles();
+                // 取各引擎的最大值而不是求和：两个引擎分析的是同一批文件，
+                // 相加会得出"93 个文件分析了 133 个"这种自相矛盾的数字
+                analyzedFiles = Math.max(analyzedFiles, result.analyzedFiles());
                 truncated = truncated || result.truncated();
                 errors.addAll(result.errors());
                 for (RawDefect raw : result.defects()) {
-                    double confidence = ruleMetadataService.find(raw.ruleId())
-                            .map(RuleCategory::weight)
-                            .orElse(0.7d);
-                    defects.add(Defect.fromRaw(raw, DefectSource.STATIC, confidence));
+                    // 引擎自评优先（语义引擎会给出 confidence），
+                    // 没有自评的静态引擎退回规则历史权重
+                    double confidence = raw.confidence() != null
+                            ? raw.confidence()
+                            : ruleMetadataService.find(raw.ruleId())
+                                    .map(RuleCategory::weight)
+                                    .orElse(0.7d);
+                    defects.add(Defect.fromRaw(raw, analyzer.source(), confidence));
                 }
                 perEngine.put(analyzer.name(), Map.of(
                         "defects", result.defects().size(),
@@ -292,20 +335,23 @@ public class ReviewPipeline {
     /**
      * 融合与落库。
      *
-     * <p>当前只有静态引擎，融合退化为"按指纹去重 + 按严重度排序"；
-     * M3 接入 LLM 后，这里会扩成蓝皮书 6.5 的双路交叉验证：
-     * 同位置同类别记 {@code CROSS_VALIDATED}，仅静态命中降权记 {@code STATIC_ONLY}。
+     * <p>蓝皮书 6.5 的双路交叉验证：同文件、同类别、行号相近的两条结果合成一条并提权，
+     * 仅单侧命中的按来源分别降权（见 {@link DefectFuser}）。
+     * 只有静态引擎时，融合退化为"按指纹去重 + 按严重度排序"，行为与 M2 一致。
      */
     private List<ReviewIssue> fuse(Long taskId, Long projectId, List<Defect> defects, Map<String, Object> stats) {
-        Map<String, Defect> unique = new LinkedHashMap<>();
-        for (Defect defect : defects) {
-            unique.putIfAbsent(defect.fingerprint(), defect);
+        DefectFuser.FuseResult fused = DefectFuser.fuse(defects);
+
+        // 先按指纹去重：同引擎内部也可能重复（规则集交叉、模型重复报同一行）
+        Map<String, DefectFuser.FusedDefect> unique = new LinkedHashMap<>();
+        for (DefectFuser.FusedDefect item : fused.items()) {
+            unique.putIfAbsent(item.defect().fingerprint(), item);
         }
-        List<Defect> ordered = unique.values().stream()
+        List<DefectFuser.FusedDefect> ordered = unique.values().stream()
                 .sorted(Comparator
-                        .comparingInt((Defect d) -> d.severity().rank())
-                        .thenComparing(Defect::filePath)
-                        .thenComparingInt(Defect::startLine))
+                        .comparingInt((DefectFuser.FusedDefect item) -> item.defect().severity().rank())
+                        .thenComparing(item -> item.defect().filePath())
+                        .thenComparingInt(item -> item.defect().startLine()))
                 .toList();
 
         List<ReviewIssue> entities = new ArrayList<>(ordered.size());
@@ -313,8 +359,10 @@ public class ReviewPipeline {
         Map<String, Integer> bySeverity = new LinkedHashMap<>();
         Map<String, Integer> byCategory = new LinkedHashMap<>();
         Map<String, Integer> bySource = new LinkedHashMap<>();
+        Map<String, Integer> byFlag = new LinkedHashMap<>();
 
-        for (Defect defect : ordered) {
+        for (DefectFuser.FusedDefect item : ordered) {
+            Defect defect = item.defect();
             ReviewIssue issue = new ReviewIssue();
             issue.setTaskId(taskId);
             issue.setProjectId(projectId);
@@ -330,7 +378,7 @@ public class ReviewPipeline {
             issue.setSource(defect.source().name());
             issue.setRuleId(defect.ruleId());
             issue.setConfidence(defect.confidence());
-            issue.setFlag(DefectSource.STATIC == defect.source() ? "STATIC_ONLY" : "CROSS_VALIDATED");
+            issue.setFlag(item.flag());
             issue.setStatus(ReviewIssue.STATUS_OPEN);
             issue.setEvidence(writeJson(defect.evidence()));
             issue.setFingerprint(defect.fingerprint());
@@ -340,6 +388,7 @@ public class ReviewPipeline {
             bySeverity.merge(defect.severity().name(), 1, Integer::sum);
             byCategory.merge(defect.category().name(), 1, Integer::sum);
             bySource.merge(defect.source().name(), 1, Integer::sum);
+            byFlag.merge(item.flag(), 1, Integer::sum);
         }
 
         for (int from = 0; from < entities.size(); from += BATCH_SIZE) {
@@ -359,6 +408,11 @@ public class ReviewPipeline {
         stats.put("bySeverity", bySeverity);
         stats.put("byCategory", byCategory);
         stats.put("bySource", bySource);
+        stats.put("byFlag", byFlag);
+        // 交叉验证条数是"双引擎互相印证"的直接证据，答辩与报告首页都用这个数字
+        stats.put("crossValidated", fused.crossValidated());
+        stats.put("staticOnly", fused.staticOnly());
+        stats.put("llmOnly", fused.llmOnly());
         stats.put("filesWithDefects", perFile.size());
         return entities;
     }
@@ -421,6 +475,46 @@ public class ReviewPipeline {
             // 进度更新失败不应中断任务
             log.warn("更新任务进度失败: taskId={}, cause={}", taskId, ex.getMessage());
         }
+    }
+
+    /** 增量模式的文件清单：保留真实变更类型与增删行数，报告页可直接显示 diff 摘要。 */
+    private void persistDiffFiles(Long taskId, DiffSlicer.DiffResult diff) {
+        if (diff.changes().isEmpty()) {
+            return;
+        }
+        List<ReviewTaskFile> rows = new ArrayList<>(diff.changes().size());
+        for (DiffSlicer.FileChange change : diff.changes()) {
+            ReviewTaskFile row = new ReviewTaskFile();
+            row.setTaskId(taskId);
+            row.setFilePath(change.path());
+            row.setChangeType(change.changeType());
+            row.setLanguage(languageOf(change.path()));
+            row.setAdditions(change.additions());
+            row.setDeletions(change.deletions());
+            row.setAnalyzed(false);
+            row.setDefectCount(0);
+            rows.add(row);
+        }
+        for (int from = 0; from < rows.size(); from += BATCH_SIZE) {
+            taskFileMapper.insertBatch(rows.subList(from, Math.min(from + BATCH_SIZE, rows.size())));
+        }
+    }
+
+    private String languageOf(String path) {
+        String lower = path == null ? "" : path.toLowerCase(java.util.Locale.ROOT);
+        if (lower.endsWith(".java")) {
+            return "JAVA";
+        }
+        if (lower.endsWith(".kt")) {
+            return "KOTLIN";
+        }
+        if (lower.endsWith(".py")) {
+            return "PYTHON";
+        }
+        if (lower.endsWith(".go")) {
+            return "GO";
+        }
+        return "JAVASCRIPT";
     }
 
     private void persistScannedFiles(Long taskId, WorkspaceScanner.ScanResult scan) {
@@ -491,6 +585,16 @@ public class ReviewPipeline {
 
     /** 引擎层输出汇总。 */
     private record AnalysisOutcome(List<Defect> defects, int analyzedFiles, boolean truncated, List<String> errors) {
+    }
+
+    /**
+     * 切片结果。
+     *
+     * @param paths     待分析文件（绝对路径）
+     * @param truncated 是否因上限被截断
+     * @param warnings  需要展示给用户的提示
+     */
+    private record SliceOutcome(List<Path> paths, boolean truncated, List<String> warnings) {
     }
 
     /** 状态已被外部改动（取消/巡检），管道应静默退出。 */

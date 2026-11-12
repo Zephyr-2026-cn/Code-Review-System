@@ -9,6 +9,7 @@ import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.api.errors.InvalidRemoteException;
 import org.eclipse.jgit.api.errors.TransportException;
 import org.eclipse.jgit.lib.ObjectId;
+import org.eclipse.jgit.lib.PersonIdent;
 import org.eclipse.jgit.lib.Repository;
 import org.eclipse.jgit.revwalk.RevCommit;
 import org.eclipse.jgit.revwalk.RevWalk;
@@ -26,6 +27,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -59,6 +61,42 @@ public class GitRepositoryService {
 
     /** 仓库 HEAD 快照。 */
     public record HeadInfo(String commitId, String shortCommitId, String message, OffsetDateTime commitAt, String branch) {
+    }
+
+    /** 历史提交摘要，供增量审查选择基线。 */
+    public record CommitInfo(String commitId, String shortCommitId, String message,
+                             String author, OffsetDateTime commitAt) {
+    }
+
+    /**
+     * 列出本地已有的最近若干次提交。
+     *
+     * <p>只读本地对象库，不访问网络——增量审查的基线必须是本地真实存在的提交，
+     * 否则 diff 阶段才发现缺失，用户已经白等了一次任务调度。
+     *
+     * @param limit 上限，超过 100 按 100 处理（下拉框不需要更多）
+     */
+    public List<CommitInfo> listRecentCommits(Path workDir, int limit) {
+        int max = limit <= 0 || limit > 100 ? 30 : limit;
+        try (Git git = Git.open(workDir.toFile())) {
+            Iterable<RevCommit> commits = git.log().setMaxCount(max).call();
+            List<CommitInfo> result = new ArrayList<>(max);
+            Instant now = Instant.now();
+            for (RevCommit commit : commits) {
+                PersonIdent author = commit.getAuthorIdent();
+                OffsetDateTime at = author == null ? null
+                        : OffsetDateTime.ofInstant(author.getWhenAsInstant(), author.getZoneId());
+                result.add(new CommitInfo(
+                        commit.getName(),
+                        commit.getName().length() <= 8 ? commit.getName() : commit.getName().substring(0, 8),
+                        commit.getShortMessage(),
+                        author == null ? null : author.getName(),
+                        at == null ? null : at.withOffsetSameInstant(ZoneOffset.ofHours(8))));
+            }
+            return result;
+        } catch (IOException | GitAPIException ex) {
+            throw new BizException(ErrorCode.REPO_CLONE_FAILED, "读取提交历史失败: " + ex.getMessage());
+        }
     }
 
     // ---------------- 目录解析 ----------------
@@ -127,7 +165,9 @@ public class GitRepositoryService {
                 .setDirectory(workDir.toFile())
                 .setCredentialsProvider(credentialsOf(credential))
                 .setTimeout(cloneTimeoutSeconds())
-                .setDepth(1)
+                // 增量审查要在本地做 base..head 的 diff，只拉最新一个提交会没有历史可比，
+                // 深度由 app.git.history-depth 控制（默认 50 层）
+                .setDepth(properties.historyDepth())
                 .setCloneAllBranches(false)
                 .setBranch(branch == null || branch.isBlank() ? null : branch)
                 .call()) {
@@ -151,6 +191,9 @@ public class GitRepositoryService {
                     .setRemote(url)
                     .setCredentialsProvider(credentialsOf(credential))
                     .setTimeout(cloneTimeoutSeconds())
+                    // 同步时顺带补齐历史深度：首次以 depth=1 克隆的老项目，
+                    // 升级后同步一次就能拿到可做增量 diff 的历史
+                    .setDepth(properties.historyDepth())
                     .setRefSpecs(new RefSpec("+refs/heads/" + targetBranch + ":refs/remotes/origin/" + targetBranch))
                     .setRemoveDeletedRefs(true)
                     .call();
