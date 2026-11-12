@@ -40,13 +40,20 @@ const routes: RouteRecordRaw[] = [
       {
         path: 'tasks',
         name: 'tasks',
-        component: () => import('@/views/ComingSoonView.vue'),
+        component: () => import('@/views/task/TaskListView.vue'),
         meta: { title: '审查任务', icon: 'Tickets', permission: 'task:list' }
+      },
+      {
+        path: 'tasks/:id',
+        name: 'task-detail',
+        component: () => import('@/views/task/TaskDetailView.vue'),
+        // 详情页不出现在菜单里，但需要标题与权限
+        meta: { title: '审查报告', permission: 'task:detail', hidden: true }
       },
       {
         path: 'issues',
         name: 'issues',
-        component: () => import('@/views/ComingSoonView.vue'),
+        component: () => import('@/views/issue/IssueCenterView.vue'),
         meta: { title: '问题中心', icon: 'Warning', permission: 'issue:list' }
       },
       {

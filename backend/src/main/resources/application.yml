@@ -148,6 +148,49 @@ app:
   cookie-secure: ${APP_COOKIE_SECURE:false}
 
   # ------------------------------------------------------------
+  # 审查执行（状态机 + Redis 队列 + worker）
+  # ------------------------------------------------------------
+  review:
+    # 关闭后任务只入库不入队，便于单独演示状态机而不真的跑分析
+    enabled: ${APP_REVIEW_ENABLED:true}
+    # worker 线程数；PMD 内部还会并行，这里不需要开太大
+    concurrency: ${APP_REVIEW_CONCURRENCY:2}
+    queue-key: ${APP_REVIEW_QUEUE_KEY:review:queue}
+    consumer-group: review-workers
+    # 单次阻塞拉取时长与队列不可用时的退避
+    poll-block: 2s
+    idle-backoff: 2s
+    # 单任务总超时：超时截断已得结果并标记 PARTIAL，而不是整任务失败
+    task-timeout: 5m
+    # 在途任务无心跳多久判定为僵尸（必须大于 task-timeout）
+    stale-timeout: 15m
+    # 停留在 CREATED/QUEUED 超过该时长视为投递失败，由巡检重新投递
+    stuck-created-age: 30s
+    recovery-interval: 60s
+    # 扫描上限：文件数与单文件体积，避免生成代码把任务拖死
+    max-files: 2000
+    max-file-size-kb: 1024
+    include-tests: false
+    # 报告接口单次最多返回的缺陷数
+    reporter-max-issues: 500
+
+  # ------------------------------------------------------------
+  # 静态分析引擎
+  # ------------------------------------------------------------
+  engine:
+    pmd:
+      enabled: true
+      rulesets:
+        - pmd/ruleset.xml
+      # 留空表示按 CPU 核数的一半自动取值
+      # threads: 2
+      # 最低优先级（1 最高 5 最低），4 表示忽略纯提示类
+      min-priority: 4
+      # 分块大小：块之间检查截止时间，超时保留已完成部分
+      chunk-size: 100
+      max-violations-per-file: 200
+
+  # ------------------------------------------------------------
   # Git 仓库接入
   # ------------------------------------------------------------
   git:
